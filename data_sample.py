@@ -1,9 +1,20 @@
 import os
 from playwright.async_api import async_playwright
 import asyncio
+import rarfile
+import subprocess
 import pandas as pd
 from awpy import Demo
 
+
+
+def pipeline(urls):
+
+
+    for url in urls:
+        rar_file = asyncio.run(download_url(url))
+        dem_files = extract_rar(rar_file)
+        return dem_files
 
 
 async def download_url(url):
@@ -35,8 +46,40 @@ async def download_url(url):
     return output_path
 
 
-def extract_rar(file):
-    return 0
+def extract_rar(rar_path):
+
+    # Store extracted files in the same directory as the .rar
+    output_dir = os.path.dirname(rar_path)
+
+    # Get files that exist before extraction
+    before = set(os.listdir(output_dir))
+
+    # Extract .dem files
+    subprocess.run(
+        [
+            r"C:\Program Files\7-Zip\7z.exe",
+            "e",
+            rar_path,
+            f"-o{output_dir}",
+            "*.dem",
+            "-y"
+        ],
+        check=True
+    )
+
+    # Get files created by extraction
+    after = set(os.listdir(output_dir))
+
+    extracted_files = [
+        os.path.join(output_dir, filename)
+        for filename in after - before
+        if filename.lower().endswith(".dem")
+    ]
+
+    # Delete the .rar file
+    os.remove(rar_path)
+
+    return extracted_files
  
 
 def parse_demo(demo_file):
@@ -100,6 +143,12 @@ def parse_demo(demo_file):
 #sample.to_csv("sample_rounds.csv", index=False)
 #kills.to_csv("sample_kills.csv", index=False)
 
-asyncio.run(
-    download_url("https://www.hltv.org/download/demo/112548")
-)
+#asyncio.run(
+#    download_url("https://www.hltv.org/download/demo/112548")
+#)
+
+urls = [
+    "https://www.hltv.org/download/demo/112548"
+    ]
+
+pipeline(urls)
