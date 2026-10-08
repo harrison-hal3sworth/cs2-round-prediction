@@ -1,5 +1,43 @@
-from awpy import Demo
+import os
+from playwright.async_api import async_playwright
+import asyncio
 import pandas as pd
+from awpy import Demo
+
+
+
+async def download_url(url):
+    output_dir = "./data/tempfiles"
+    os.makedirs(output_dir, exist_ok=True)
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        page = await browser.new_page()
+
+        async with page.expect_download() as download_info:
+            try:
+                await page.goto(url)
+            except Exception as e:
+                # HLTV causes Playwright to report
+                # "Download is starting" as a navigation error.
+                if "Download is starting" not in str(e):
+                    raise
+
+        download = await download_info.value
+
+        filename = download.suggested_filename
+        output_path = os.path.join(output_dir, filename)
+
+        await download.save_as(output_path)
+
+        await browser.close()
+
+    return output_path
+
+
+def extract_rar(file):
+    return 0
+ 
 
 def parse_demo(demo_file):
 
@@ -55,9 +93,15 @@ def parse_demo(demo_file):
 
 # Example
 
-DEMO = "./data/rawdemos/darkwall-vs-krytiepacani-m2-dust2.dem"
+#DEMO = "./data/rawdemos/darkwall-vs-krytiepacani-m2-dust2.dem"
+#
+#sample, kills = parse_demo(DEMO)
+#
+#sample.to_csv("sample_rounds.csv", index=False)
+#kills.to_csv("sample_kills.csv", index=False)
 
-sample, kills = parse_demo(DEMO)
+import asyncio
 
-sample.to_csv("sample_rounds.csv", index=False)
-kills.to_csv("sample_kills.csv", index=False)
+asyncio.run(
+    download_url("https://www.hltv.org/download/demo/112548")
+)
