@@ -1,7 +1,7 @@
 from awpy import Demo
 import pandas as pd
 
-DEMO = "./data/spirit-vs-faze-m3-dust2.dem"
+DEMO = "./data/darkwall-vs-krytiepacani-m2-dust2.dem"
 
 # ---- 1. Parse the demo ------------------------------------------------------
 dem = Demo(DEMO)
@@ -31,7 +31,7 @@ snap["side"] = snap["team_num"].map({3: "ct", 2: "t"})
 # One row per round: total equipment + team name for each side
 econ = (
     snap.groupby(["round_num", "side"])
-    .agg(equip=("equip", "sum"), team=("team_name", "first"))
+    .agg(equip=("equip", "sum"), team=("team_num", "first"))
     .unstack("side")
 )
 econ.columns = [f"{side}_{col}" for col, side in econ.columns]  # ct_equip, t_equip, ct_team, t_team
