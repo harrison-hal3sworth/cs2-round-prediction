@@ -100,8 +100,6 @@ def parse_demo(demo_file):
 #sample.to_csv("sample_rounds.csv", index=False)
 #kills.to_csv("sample_kills.csv", index=False)
 
-import asyncio
-
 asyncio.run(
     download_url("https://www.hltv.org/download/demo/112548")
 )
