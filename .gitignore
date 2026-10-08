@@ -1,1 +1,6 @@
+.venv/
+*.dem
+*.rar
+*.zip
 rawdemos/
+sample_*.csv
