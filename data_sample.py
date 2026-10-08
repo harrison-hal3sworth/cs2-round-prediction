@@ -10,11 +10,20 @@ from awpy import Demo
 
 def pipeline(urls):
 
+    parsed_demo_samples = []
+    parsed_demo_kills = []
 
     for url in urls:
         rar_file = asyncio.run(download_url(url))
-        dem_files = extract_rar(rar_file)
-        return dem_files
+        demo_files = extract_rar(rar_file)
+        for demo_file in demo_files:
+            sample, kills = parse_demo(demo_file,
+                                       delete_demo = True
+                                       )
+            parsed_demo_samples.append(sample)
+            parsed_demo_kills.append(kills)
+
+    return parsed_demo_samples, parsed_demo_kills
 
 
 async def download_url(url):
@@ -48,14 +57,9 @@ async def download_url(url):
 
 def extract_rar(rar_path):
 
-    # Store extracted files in the same directory as the .rar
     output_dir = os.path.dirname(rar_path)
 
-    # Get files that exist before extraction
-    before = set(os.listdir(output_dir))
-
-    # Extract .dem files
-    subprocess.run(
+    result = subprocess.run(
         [
             r"C:\Program Files\7-Zip\7z.exe",
             "e",
@@ -64,25 +68,27 @@ def extract_rar(rar_path):
             "*.dem",
             "-y"
         ],
+        capture_output=True,
+        text=True,
         check=True
     )
 
-    # Get files created by extraction
-    after = set(os.listdir(output_dir))
+    print(result.stdout)
 
-    extracted_files = [
+    demo_files = [
         os.path.join(output_dir, filename)
-        for filename in after - before
+        for filename in os.listdir(output_dir)
         if filename.lower().endswith(".dem")
     ]
 
-    # Delete the .rar file
     os.remove(rar_path)
 
-    return extracted_files
+    print(demo_files)
+
+    return demo_files
  
 
-def parse_demo(demo_file):
+def parse_demo(demo_file, delete_demo = False):
 
     # ---- 1. Parse the demo ------------------------------------------------------
     dem = Demo(demo_file)
@@ -130,8 +136,15 @@ def parse_demo(demo_file):
          "ct_equip", "t_equip", "equip_gap_ct"]
     ].sort_values("round_num")
 
-    # ---- 4. Output --------------------------------------------------------------
+    # ---- 4. Delete Final (optional) ---------------------------------------------
+    print(f"Deleting: {demo_file}")
+    
+    if delete_demo == True:
+        os.remove(demo_file)
+
+    # ---- 5. Output --------------------------------------------------------------
     return sample, kills
+
 
 
 # Example
@@ -148,7 +161,11 @@ def parse_demo(demo_file):
 #)
 
 urls = [
-    "https://www.hltv.org/download/demo/112548"
+    "https://www.hltv.org/download/demo/112530"
     ]
 
-pipeline(urls)
+parsed_demo_samples, parsed_demo_kills = pipeline(urls)
+
+print(parsed_demo_samples)
+print(parsed_demo_kills)
+
