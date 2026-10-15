@@ -22,7 +22,14 @@ def pipeline(urls):
         demo_files = extract_rar(rar_file)
         for demo_file in demo_files:
             # Get the map name
-            map_name = re.search(r"-m\d+-(.+)\.dem$", os.path.basename(demo_file)).group(1)
+            filename = os.path.basename(demo_file)
+
+            match = re.search(r"-m\d+-(.+)\.dem$", filename)
+
+            if match:
+                map_name = match.group(1)
+            else: # There was only one map played
+                map_name = re.search(r"-([^-]+)\.dem$", filename).group(1)
 
             sample, kills = parse_demo(demo_file,
                                        delete_demo = True
@@ -183,6 +190,12 @@ def parse_demo(demo_file, delete_demo = False):
 #)
 
 urls = [
+    "https://www.hltv.org/download/demo/112805",
+    "https://www.hltv.org/download/demo/112804",
+    "https://www.hltv.org/download/demo/112803",
+    "https://www.hltv.org/download/demo/112802",
+    "https://www.hltv.org/download/demo/112801",
+    "https://www.hltv.org/download/demo/112800",
     "https://www.hltv.org/download/demo/112530"
     ]
 
