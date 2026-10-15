@@ -15,13 +15,13 @@ def pipeline(urls):
     parsed_demo_kills = []
 
     for url in urls:
-        # get HLTV demo ID from the URL
+        # Get HLTV demo ID from the URL
         demo_id = re.search(r"/demo/(\d+)", url).group(1)
 
         rar_file = asyncio.run(download_url(url))
         demo_files = extract_rar(rar_file)
         for demo_file in demo_files:
-            # get map name
+            # Get the map name
             map_name = re.search(r"-m\d+-(.+)\.dem$", os.path.basename(demo_file)).group(1)
 
             sample, kills = parse_demo(demo_file,
@@ -35,7 +35,17 @@ def pipeline(urls):
             parsed_demo_samples.append(sample)
             parsed_demo_kills.append(kills)
 
-    return parsed_demo_samples, parsed_demo_kills
+    # Combine all demos into two data frames
+    full_samples = pd.concat(parsed_demo_samples, ignore_index=True)
+    full_kills = pd.concat(parsed_demo_kills, ignore_index=True)
+
+    # Save csv files in the data folder
+    os.makedirs("./data", exist_ok = True)
+
+    full_samples.to_csv("./data/sample_rounds.csv", index = False)
+    full_kills.to_csv("./data/sample_kills.csv", index = False)
+
+    return full_samples, full_kills
 
 
 async def download_url(url):
