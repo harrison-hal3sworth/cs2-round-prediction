@@ -1,4 +1,5 @@
 import os
+import re
 from playwright.async_api import async_playwright
 import asyncio
 import rarfile
@@ -14,12 +15,23 @@ def pipeline(urls):
     parsed_demo_kills = []
 
     for url in urls:
+        # get HLTV demo ID from the URL
+        demo_id = re.search(r"/demo/(\d+)", url).group(1)
+
         rar_file = asyncio.run(download_url(url))
         demo_files = extract_rar(rar_file)
         for demo_file in demo_files:
+            # get map name
+            map_name = re.search(r"-m\d+-(.+)\.dem$", os.path.basename(demo_file)).group(1)
+
             sample, kills = parse_demo(demo_file,
                                        delete_demo = True
                                        )
+            # Add identifiers as the first two columns
+            for df in (sample, kills):
+                df.insert(0, "map_name", map_name)
+                df.insert(0, "file_id", demo_id)
+
             parsed_demo_samples.append(sample)
             parsed_demo_kills.append(kills)
 
