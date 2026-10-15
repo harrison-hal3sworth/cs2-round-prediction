@@ -2,3 +2,5 @@ rawdemos/
 /.vs
 /data/sample_kills.csv
 /data/sample_rounds.csv
+.Rproj.user
+cs2-round-prediction.Rproj
