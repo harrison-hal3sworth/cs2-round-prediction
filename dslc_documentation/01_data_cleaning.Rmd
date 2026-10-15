@@ -3,3 +3,23 @@ title: "01_data_cleaning"
 output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+source("functions/data_cleaning_functions.R")
+```
+
+```{r read csv}
+sample_kills <- read.csv("./data/sample_kills.csv")
+sample_rounds <- read.csv("./data/sample_rounds.csv")
+```
+
+```{r summary}
+summary(sample_kills)
+summary(sample_rounds)
+```
+
+```{r combine}
+first_round_kill(sample_rounds, sample_kills)
+```
