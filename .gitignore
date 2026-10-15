@@ -4,3 +4,4 @@
 *.zip
 rawdemos/
 sample_*.csv
+.Rproj.user
