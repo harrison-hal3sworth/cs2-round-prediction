@@ -19,7 +19,18 @@ def pipeline(urls):
         demo_id = re.search(r"/demo/(\d+)", url).group(1)
 
         rar_file = asyncio.run(download_url(url))
+
+        # Skip URLs that return a 404 or fail to download
+        if rar_file is None:
+            continue
+
         demo_files = extract_rar(rar_file)
+
+        # Skip if no demo files were extracted
+        if not demo_files:
+            print(f"No demo files found for {url}; skipping.")
+            continue
+
         for demo_file in demo_files:
             # Get the map name
             filename = os.path.basename(demo_file)
@@ -64,25 +75,34 @@ async def download_url(url):
         browser = await p.chromium.launch(headless=False)
         page = await browser.new_page()
 
-        async with page.expect_download() as download_info:
-            try:
-                await page.goto(url)
-            except Exception as e:
-                # HLTV causes Playwright to report
-                # "Download is starting" as a navigation error.
-                if "Download is starting" not in str(e):
-                    raise
+        try:
+            async with page.expect_download(timeout=10000) as download_info:
+                try:
+                    await page.goto(url)
+                except Exception as e:
+                    # HLTV causes Playwright to report
+                    # "Download is starting" as a navigation error.
+                    if "Download is starting" not in str(e):
+                        raise
 
-        download = await download_info.value
+            download = await download_info.value
 
-        filename = download.suggested_filename
-        output_path = os.path.join(output_dir, filename)
+            filename = download.suggested_filename
+            output_path = os.path.join(output_dir, filename)
 
-        await download.save_as(output_path)
+            await download.save_as(output_path)
 
-        await browser.close()
+            return output_path
 
-    return output_path
+        except Exception as e:
+            print(f"No download detected within 10 seconds or download failed: {url}")
+            print(f"{type(e).__name__}: {e}")
+            return None
+
+        finally:
+            await browser.close()
+
+
 
 
 def extract_rar(rar_path):
@@ -194,7 +214,7 @@ base_url = "https://www.hltv.org/download/demo/"
 
 urls = [
     f"{base_url}{demo_id}"
-    for demo_id in range(112925, 112930)
+    for demo_id in range(112974, 112975)
 ]
 
 parsed_demo_samples, parsed_demo_kills = pipeline(urls)
