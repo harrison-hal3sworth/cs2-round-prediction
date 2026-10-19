@@ -37,6 +37,7 @@ def pipeline(urls):
             # Add identifiers as the first two columns
             for df in (sample, kills):
                 df.insert(0, "map_name", map_name)
+                df.insert(0, "file_name", filename)
                 df.insert(0, "file_id", demo_id)
 
             parsed_demo_samples.append(sample)
@@ -189,18 +190,14 @@ def parse_demo(demo_file, delete_demo = False):
 #    download_url("https://www.hltv.org/download/demo/112548")
 #)
 
+base_url = "https://www.hltv.org/download/demo/"
+
 urls = [
-    "https://www.hltv.org/download/demo/112805",
-    "https://www.hltv.org/download/demo/112804",
-    "https://www.hltv.org/download/demo/112803",
-    "https://www.hltv.org/download/demo/112802",
-    "https://www.hltv.org/download/demo/112801",
-    "https://www.hltv.org/download/demo/112800",
-    "https://www.hltv.org/download/demo/112530"
-    ]
+    f"{base_url}{demo_id}"
+    for demo_id in range(112925, 112930)
+]
 
 parsed_demo_samples, parsed_demo_kills = pipeline(urls)
 
 print(parsed_demo_samples)
 print(parsed_demo_kills)
-
