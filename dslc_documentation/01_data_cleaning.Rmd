@@ -38,5 +38,94 @@ data <- data |>
 ```
 
 ```{r remove unnecessary columns}
-data <- data |> select(-file_name, -ct_team, -t_team)
+data <- data |> select(-ct_team, -t_team)
+```
+
+```{r exploratory graph}
+plot_data <- sample_rounds |>
+    filter(round_num >= 1, round_num <= 12) |>
+    pivot_longer(
+        cols = c(ct_equip, t_equip),
+        names_to = "side",
+        values_to = "cash"
+    )
+
+mean_data <- plot_data |>
+    group_by(round_num, side) |>
+    summarise(
+        n = sum(!is.na(cash)),
+        mean_cash = mean(cash, na.rm = TRUE),
+        sd_cash = sd(cash, na.rm = TRUE),
+        se = sd_cash / sqrt(n),
+        t_critical = qt(0.975, df = n - 1),
+        lower = mean_cash - t_critical * se,
+        upper = mean_cash + t_critical * se,
+        .groups = "drop"
+    )
+
+ggplot() +
+    geom_line(
+        data = plot_data,
+        aes(
+            x = round_num, y = cash,
+            color = side,
+            group = interaction(file_id, map_name, side)
+        ),
+        alpha = 0.10,
+        linewidth = 0.4
+    ) +
+    geom_errorbar(
+        data = mean_data,
+        aes(
+            x = round_num, ymin = lower, ymax = upper,
+            color = side
+        ),
+        width = 0.15,
+        linewidth = 0.8
+    ) +
+    geom_line(
+        data = mean_data,
+        aes(x = round_num, y = mean_cash, color = side),
+        linewidth = 1.4
+    ) +
+    geom_point(
+        data = mean_data,
+        aes(x = round_num, y = mean_cash, color = side),
+        size = 2
+    ) +
+    scale_color_manual(
+        values = c(ct_equip = "blue", t_equip = "red"),
+        labels = c(ct_equip = "CT", t_equip = "T"),
+        name = "Side"
+    ) +
+    scale_x_continuous(breaks = 1:12) +
+    scale_y_continuous(labels = scales::label_dollar()) +
+    labs(
+        title = "Equipment Value Across the First 12 Rounds",
+        subtitle = "Individual matches in faint lines; bold lines show means with 95% confidence intervals",
+        x = "Round",
+        y = "Mean Team Equipment Value ($)"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+        plot.title = element_text(face = "bold"),
+        legend.position = "top"
+    )
+```
+
+```{r}
+maps <- data |> select(file_name) |> unique()
+train_size <- round(nrow(maps) * 0.6)
+
+train_maps <- maps |>
+  slice_sample(n = train_size)
+
+test_maps <- maps |>
+  anti_join(train_maps, by = "file_name")
+
+train_data <- data |>
+  semi_join(train_maps, by = "file_name")
+
+test_data <- data |>
+  semi_join(test_maps, by = "file_name")
 ```
