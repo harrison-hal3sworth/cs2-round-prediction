@@ -20,6 +20,23 @@ summary(sample_kills)
 summary(sample_rounds)
 ```
 
+```{r number of rounds}
+sample_rounds$file_id |> unique() |> length()
+```
+
 ```{r combine}
-first_round_kill(sample_rounds, sample_kills)
+data <- first_round_kill(sample_rounds, sample_kills)
+```
+
+```{r pistol round}
+data <- is_pistol_round(data)
+```
+
+```{r relative econ gap}
+data <- data |>
+  mutate(rel_equip_gap_ct = log(ct_equip / t_equip))
+```
+
+```{r remove unnecessary columns}
+data <- data |> select(-file_name, -ct_team, -t_team)
 ```
