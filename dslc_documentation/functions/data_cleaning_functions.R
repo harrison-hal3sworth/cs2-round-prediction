@@ -31,17 +31,6 @@ is_pistol_round <- function(data) {
       )
 }
 
-remove_drawed_rounds <- function(data) {
-  output <- data |>
-    filter(reason != "draw") |>
-    group_by(file_id, map_name, file_name) |>
-    arrange(round_num, .by_group = TRUE) |>
-    mutate(round_num = row_number()) |>
-    ungroup()
-  
-  return(output)
-}
-
 remove_overtime <- function(data) {
   output <- data |>
     filter(round_num <= 24)
