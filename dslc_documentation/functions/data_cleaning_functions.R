@@ -44,7 +44,7 @@ remove_drawed_rounds <- function(data) {
 
 remove_overtime <- function(data) {
   output <- data |>
-    filter(round_num > 24)
+    filter(round_num <= 24)
 
   return(output)
 }
