@@ -20,9 +20,88 @@ summary(sample_kills)
 summary(sample_rounds)
 ```
 
-```{r number of rounds}
-sample_rounds$file_id |> unique() |> length()
+```{r}
+sample_rounds |> filter(is.na(ct_equip)) |> select(file_id, map_name, round_num, winner, reason)
 ```
+
+```{r number of maps}
+sample_rounds |> select(file_name) |> unique() |> nrow()
+```
+
+Looking at the number of rounds per map
+```{r}
+sample_rounds |> 
+  group_by(file_id, map_name, file_name) |> 
+  summarise(num_rounds = max(round_num)) |> 
+  arrange(desc(num_rounds)) |> print(n = 30)
+```
+
+There is clearly a problem here.There can be at most 24 rounds. This means something is causing extra rounds to appear in the data. Let's investigate one case.
+
+```{r}
+sample_rounds |> filter(file_name == "nemesis-vs-eyeballers-m1-mirage.dem")
+```
+We can see that there are *draws*. This is unexpected, since there are not supposed to be draws in CS2. Investigating the footage, it appears what is marked as a *draw* is actually something referred to as a "tech pause." This means that whenever we observe a draw, we should actually treat the round as if it did not happen at all.
+
+```{r}
+sample_rounds_cleaned <- remove_drawed_rounds(sample_rounds)
+
+sample_rounds_cleaned |> 
+  group_by(file_id, map_name, file_name) |> 
+  summarise(num_rounds = max(round_num)) |> 
+  arrange(desc(num_rounds)) |> print(n = 30)
+```
+This still does not entirely solve the problem. There is also the concept of overtime. We should ensure that all of these games are truly in overtime with a quick calculation.
+
+```{r overtime}
+overtime_games <- sample_rounds_cleaned |> 
+  group_by(file_name) |> 
+  summarise(
+    num_rounds = max(round_num),
+    .groups = "drop"
+  ) |>
+  filter(num_rounds > 24) |>
+  arrange(desc(num_rounds)) |>
+  select(file_name)
+
+sample_rounds_cleaned |>
+  semi_join(overtime_games, by = "file_name") |> 
+  filter(round_num <= 24) |>
+  group_by(file_name) |>
+  summarise(
+    ct_team_1_wins = sum(winner[round_num <= 12] == "ct", na.rm = TRUE),
+    t_team_1_wins = sum(winner[round_num >= 13 & round_num <= 24] == "t", na.rm = TRUE),
+    total_wins = ct_team_1_wins + t_team_1_wins,
+    .groups = "drop"
+  ) |>
+  arrange(total_wins)
+```
+
+Only *black-phoenix-vs-lph-m1-nuke.dem* is inaccurate. Looking into the game itself, it appears this is some explainable error. We will exclude this map in our study. We can also exclude all rounds after round 24 for now.
+
+```{r}
+sample_rounds_cleaned <- remove_overtime(sample_rounds_cleaned)
+
+sample_rounds_cleaned |> 
+  group_by(file_id, map_name, file_name) |> 
+  summarise(num_rounds = max(round_num)) |> 
+  arrange(desc(num_rounds)) |> print(n = 30)
+```
+
+This should work for now. Let's look at the remaining *NA* values for economy.
+
+```{r}
+summary(sample_rounds_cleaned)
+
+sample_rounds_cleaned |> filter(is.na(ct_equip))
+```
+
+The issues appear to only occur during pistol rounds (round 1 and 13.)
+
+```{r}
+sample_rounds_cleaned |> filter(file_name == "damajuan-vs-a-nata-m3-inferno.dem")
+```
+
 
 ```{r combine}
 data <- first_round_kill(sample_rounds, sample_kills)
@@ -112,6 +191,8 @@ ggplot() +
         legend.position = "top"
     )
 ```
+
+
 
 ```{r}
 maps <- data |> select(file_name) |> unique()
