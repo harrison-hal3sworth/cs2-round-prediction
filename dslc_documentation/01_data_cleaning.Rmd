@@ -88,7 +88,7 @@ sample_rounds_cleaned |> filter(file_name == "damajuan-vs-a-nata-m3-inferno.dem"
 
 
 ```{r combine}
-data <- first_round_kill(sample_rounds, sample_kills)
+data <- first_round_kill(sample_rounds_cleaned, sample_kills)
 ```
 
 ```{r pistol round}
@@ -193,4 +193,9 @@ train_data <- data |>
 
 test_data <- data |>
   semi_join(test_maps, by = "file_name")
+```
+
+```{r}
+plot_equipment_by_first_winner(data, "counter-terrorist")
+plot_equipment_by_first_winner(data, "terrorist")
 ```
