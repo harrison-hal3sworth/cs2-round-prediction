@@ -199,3 +199,62 @@ test_data <- data |>
 plot_equipment_by_first_winner(data, "counter-terrorist")
 plot_equipment_by_first_winner(data, "terrorist")
 ```
+
+```{r basic logit}
+stan_model <- glm(
+  winner == "counter-terrorist" ~ equip_gap_ct,
+  data = train_data,
+  family = binomial(link = "logit")
+  )
+rel_model <- glm(
+  winner == "counter-terrorist" ~ rel_equip_gap_ct,
+  data = train_data,
+  family = binomial(link = "logit")
+  )
+
+summary(stan_model)
+exp(coef(stan_model))
+
+summary(rel_model)
+exp(coef(rel_model))
+```
+
+```{r}
+test_data$stan_model_prob_ct_win <- predict(
+    stan_model,
+    newdata = test_data,
+    type = "response"
+)
+
+test_data$stan_model_predicted_winner <- ifelse(
+    test_data$stan_model_prob_ct_win >= 0.5,
+    "counter-terrorist",
+    "terrorist"
+)
+
+test_data$rel_model_prob_ct_win <- predict(
+    rel_model,
+    newdata = test_data,
+    type = "response"
+)
+
+test_data$rel_model_predicted_winner <- ifelse(
+    test_data$rel_model_prob_ct_win >= 0.5,
+    "counter-terrorist",
+    "terrorist"
+)
+
+test_data <- test_data |> 
+  mutate(stan_model_correct = ifelse(winner == stan_model_predicted_winner, TRUE, FALSE),
+         rel_model_correct = ifelse(winner == rel_model_predicted_winner, TRUE, FALSE))
+
+sum(test_data$stan_model_correct) / nrow(test_data)
+
+sum(test_data$rel_model_correct) / nrow(test_data)
+
+test_data |> ggplot() +
+  geom_point(aes(x = equip_gap_ct, y = stan_model_prob_ct_win, color = stan_model_correct))
+
+test_data |> ggplot() +
+  geom_point(aes(x = equip_gap_ct, y = rel_model_prob_ct_win, color = rel_model_correct))
+```
