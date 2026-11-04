@@ -333,6 +333,25 @@ def parse_demo(demo_file, delete_demo=False):
         sample["ct_team"] = "counter-terrorist"
         sample["t_team"] = "terrorist"
 
+
+        # Assign each kill to its corresponding round
+        kills["round_num"] = pd.NA
+
+        for row in rounds.itertuples(index=False):
+            if pd.isna(row.start_tick) or pd.isna(row.end_tick):
+                continue
+
+            mask = (
+                (kills["tick"] >= row.start_tick) &
+                (kills["tick"] <= row.end_tick)
+            )
+
+            kills.loc[mask, "round_num"] = row.round_num
+
+        # Use nullable integer type
+        kills["round_num"] = kills["round_num"].astype("Int64")
+
+
         # Attach demo creation date to each sample
         demo_date = pd.to_datetime(
             os.path.getctime(demo_file),
@@ -397,7 +416,7 @@ base_url = "https://www.hltv.org/download/demo/"
 
 urls = [
     f"{base_url}{demo_id}"
-    for demo_id in range(112874, 112974)
+    for demo_id in range(111974, 112974)
 ]
 
 parsed_demo_samples, parsed_demo_kills = pipeline(urls)
