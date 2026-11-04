@@ -333,8 +333,17 @@ def parse_demo(demo_file, delete_demo=False):
         sample["ct_team"] = "counter-terrorist"
         sample["t_team"] = "terrorist"
 
+        # Attach demo creation date to each sample
+        demo_date = pd.to_datetime(
+            os.path.getctime(demo_file),
+            unit="s"
+        ).date()
+
+        sample["date"] = demo_date
+
         sample = sample[
             [
+                "date",
                 "round_num",
                 "ct_team", "t_team",
                 "winner", "reason", "planted",
@@ -347,6 +356,7 @@ def parse_demo(demo_file, delete_demo=False):
                 "ct_equip", "t_equip", "equip_gap_ct"
             ]
         ].sort_values("round_num")
+
 
         # ---- 7. Delete Demo (optional) -----------------------------------------------
         print(f"Deleting: {demo_file}")
