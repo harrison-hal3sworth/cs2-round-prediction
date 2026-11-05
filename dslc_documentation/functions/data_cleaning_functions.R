@@ -38,6 +38,266 @@ remove_overtime <- function(data) {
   return(output)
 }
 
+get_team_names <- function(file_name) {
+  
+  maps = c(
+    "dust2", "mirage", "inferno", "nuke",
+    "ancient", "anubis", "overpass", "train",
+    "vertigo", "cache"
+  )
+  
+  file_name <- basename(file_name)
+  
+  # Extract team 1
+  team_1_name <- sub("-vs-.*$", "", file_name)
+  
+  # Extract team 2
+  team_2_name <- sub("^.*-vs-", "", file_name)
+  
+  # Remove extension
+  team_2_name <- sub("\\.dem$", "", team_2_name)
+  
+  # If -m# exists, remove it and everything after
+  if (grepl("-m[0-9]+", team_2_name)) {
+    
+    team_2_name <- sub("-m[0-9]+.*$", "", team_2_name)
+    
+  } else {
+    
+    # Otherwise remove recognized map suffix
+    map_pattern <- paste0(
+      "-(",
+      paste(maps, collapse = "|"),
+      ")$"
+    )
+    
+    team_2_name <- sub(map_pattern, "", team_2_name)
+  }
+  
+  return(list(
+    team_1_name = team_1_name,
+    team_2_name = team_2_name
+  ))
+}
+
+plot_team_game_distribution <- function(sample_kills) {
+  
+  team_games <- sample_kills %>%
+    distinct(file_name) %>%
+    mutate(
+      team_1 = map_chr(file_name, ~ get_team_names(.x)$team_1_name),
+      team_2 = map_chr(file_name, ~ get_team_names(.x)$team_2_name)
+    ) %>%
+    select(team_1, team_2) %>%
+    pivot_longer(
+      cols = everything(),
+      values_to = "team"
+    ) %>%
+    count(team, name = "games") %>%
+    arrange(desc(games))
+  
+  # Plot distribution
+  p <- ggplot(team_games, aes(
+    x = reorder(team, games),
+    y = games
+  )) +
+    geom_col() +
+    coord_flip() +
+    labs(
+      title = "Distribution of Games by CS2 Team",
+      x = "Team",
+      y = "Number of Games"
+    ) +
+    theme_minimal()
+  
+  return(list(
+    data = team_games,
+    plot = p
+  ))
+}
+ 
+create_player_team_matrix <- function(kills) {
+  
+  # Extract teams for each unique match
+  matches <- kills %>%
+    distinct(file_name) %>%
+    mutate(
+      team_1 = purrr::map_chr(file_name, ~ get_team_names(.x)$team_1_name),
+      team_2 = purrr::map_chr(file_name, ~ get_team_names(.x)$team_2_name)
+    )
+  
+  # Collect unique player appearances
+  players <- kills %>%
+    mutate(across(ends_with("steamid"), as.character)) %>%
+    select(file_name, attacker_steamid, victim_steamid, assister_steamid) %>%
+    pivot_longer(
+      cols = -file_name,
+      values_to = "steamid"
+    ) %>%
+    mutate(steamid = trimws(steamid)) %>%
+    filter(
+      !is.na(steamid),
+      steamid != "",
+      steamid != "0"
+    ) %>%
+    distinct(file_name, steamid)
+  
+  # Associate each player with both teams in each match
+  player_matches <- players %>%
+    inner_join(matches, by = "file_name") %>%
+    pivot_longer(
+      cols = c(team_1, team_2),
+      values_to = "team"
+    ) %>%
+    filter(!is.na(team), team != "") %>%
+    distinct(file_name, steamid, team)
+  
+  # Calculate team proportions
+  team_counts <- player_matches %>%
+    count(steamid, team, name = "matches")
+  
+  player_totals <- players %>%
+    count(steamid, name = "total_matches")
+  
+  team_proportions <- team_counts %>%
+    left_join(player_totals, by = "steamid") %>%
+    mutate(proportion = matches / total_matches)
+  
+  # Classify players and record why
+  player_classification <- team_proportions %>%
+    group_by(steamid) %>%
+    summarise(
+      total_matches = first(total_matches),
+      best_proportion = max(proportion),
+      n_top_teams = sum(proportion == max(proportion)),
+      
+      team_name = {
+        exact_ones <- team[proportion == 1]
+        best_teams <- team[proportion == max(proportion)]
+        
+        if (length(exact_ones) == 1) {
+          exact_ones
+        } else if (length(exact_ones) > 1) {
+          "not enough games"
+        } else if (length(best_teams) == 1) {
+          best_teams
+        } else {
+          "not enough games"
+        }
+      },
+      
+      classification_reason = {
+        exact_ones <- team[proportion == 1]
+        best_teams <- team[proportion == max(proportion)]
+        
+        if (length(exact_ones) == 1) {
+          "One team appears in every match"
+        } else if (length(exact_ones) > 1) {
+          "Multiple teams appear in every match"
+        } else if (length(best_teams) == 1) {
+          "Unique highest proportion"
+        } else {
+          "Tie for highest proportion"
+        }
+      },
+      
+      .groups = "drop"
+    )
+  
+  # Create wide team-proportion matrix
+  team_matrix <- team_proportions %>%
+    select(steamid, team, proportion) %>%
+    pivot_wider(
+      names_from = team,
+      values_from = proportion,
+      values_fill = 0
+    )
+  
+  # Add classification information
+  team_matrix %>%
+    left_join(player_classification, by = "steamid")
+}
+
+identify_team_1_role <- function(sample_kills) {
+  
+  # Infer player teams
+  player_teams <- create_player_team_matrix(sample_kills) %>%
+    select(steamid, team_name) %>%
+    filter(
+      !is.na(team_name),
+      team_name != "not enough games"
+    )
+  
+  # Extract player-side observations
+  player_sides <- sample_kills %>%
+    mutate(across(ends_with("steamid"), as.character)) %>%
+    select(
+      file_name,
+      round_num,
+      attacker_steamid, attacker_side,
+      victim_steamid, victim_side,
+      assister_steamid, assister_side
+    ) %>%
+    pivot_longer(
+      cols = -c(file_name, round_num),
+      names_to = c("player_type", ".value"),
+      names_pattern = "(attacker|victim|assister)_(steamid|side)"
+    ) %>%
+    filter(
+      !is.na(steamid),
+      steamid != "",
+      steamid != "0",
+      !is.na(side)
+    ) %>%
+    left_join(player_teams, by = "steamid") %>%
+    filter(!is.na(team_name))
+  
+  # Identify each team's starting side using rounds 1-12 ONLY
+  starting_sides <- player_sides %>%
+    filter(round_num <= 12) %>%
+    count(file_name, team_name, side, name = "observations") %>%
+    group_by(file_name, team_name) %>%
+    slice_max(observations, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    select(file_name, team_name, starting_side = side)
+  
+  # Extract Team 1 from each filename
+  matches <- sample_kills %>%
+    distinct(file_name) %>%
+    mutate(
+      team_1 = purrr::map_chr(
+        file_name,
+        ~ get_team_names(.x)$team_1_name
+      )
+    )
+  
+  # Determine Team 1's starting side
+  team_1_starting_side <- matches %>%
+    left_join(
+      starting_sides,
+      by = c("file_name", "team_1" = "team_name")
+    ) %>%
+    select(file_name, team_1_starting_side = starting_side)
+  
+  # Assign Team 1's role, switching at round 13
+  sample_kills %>%
+    left_join(team_1_starting_side, by = "file_name") %>%
+    mutate(
+      team_1_role = case_when(
+        is.na(team_1_starting_side) ~ NA_character_,
+        
+        round_num <= 12 ~ tolower(team_1_starting_side),
+        
+        round_num >= 13 &
+          tolower(team_1_starting_side) == "terrorist" ~ "counter-terrorist",
+        
+        round_num >= 13 &
+          tolower(team_1_starting_side) == "counter-terrorist" ~ "terrorist"
+      )
+    ) %>%
+    select(-team_1_starting_side)
+}
+
 clean_data <- function(rounds, kills) {
   
 }
