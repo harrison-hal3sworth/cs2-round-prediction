@@ -312,6 +312,18 @@ identify_team_1_role <- function(sample_kills) {
 
 clean_data <- function(rounds, kills, rankings) {
   
+  # Remove incomplete games
+  incomplete_files <- rounds |>
+    filter(stringr::str_starts(file_name, "incomplete.dem")) |>
+    pull(file_name) |>
+    unique()
+  
+  rounds <- rounds |>
+    filter(!str_starts(file_name, "incomplete.dem"))
+  
+  kills <- kills |>
+    filter(!str_starts(file_name, "incomplete.dem"))
+  
   
   # Don't include overtime games
   rounds <- remove_overtime(rounds)
