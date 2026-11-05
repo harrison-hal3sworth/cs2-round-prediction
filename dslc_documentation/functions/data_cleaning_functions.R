@@ -1,5 +1,7 @@
 library(tidyverse)
-
+library(stringr)
+library(stringi)
+library(data.table)
 
 first_round_kill <- function(rounds, kills) {
   res <- kills |>
@@ -40,7 +42,7 @@ remove_overtime <- function(data) {
 
 get_team_names <- function(file_name) {
   
-  maps = c(
+  maps <- c(
     "dust2", "mirage", "inferno", "nuke",
     "ancient", "anubis", "overpass", "train",
     "vertigo", "cache"
@@ -48,23 +50,20 @@ get_team_names <- function(file_name) {
   
   file_name <- basename(file_name)
   
-  # Extract team 1
+  # Extract team names
   team_1_name <- sub("-vs-.*$", "", file_name)
-  
-  # Extract team 2
   team_2_name <- sub("^.*-vs-", "", file_name)
   
   # Remove extension
   team_2_name <- sub("\\.dem$", "", team_2_name)
   
-  # If -m# exists, remove it and everything after
+  # Remove map or match suffix
   if (grepl("-m[0-9]+", team_2_name)) {
     
     team_2_name <- sub("-m[0-9]+.*$", "", team_2_name)
     
   } else {
     
-    # Otherwise remove recognized map suffix
     map_pattern <- paste0(
       "-(",
       paste(maps, collapse = "|"),
@@ -73,6 +72,14 @@ get_team_names <- function(file_name) {
     
     team_2_name <- sub(map_pattern, "", team_2_name)
   }
+  
+  # Standardize team names
+  team_1_name <- tolower(team_1_name)
+  team_2_name <- tolower(team_2_name)
+  
+  # Correct known spelling inconsistencies
+  team_1_name <- sub("^familcao$", "famalicao", team_1_name)
+  team_2_name <- sub("^familcao$", "famalicao", team_2_name)
   
   return(list(
     team_1_name = team_1_name,
@@ -252,7 +259,7 @@ identify_team_1_role <- function(sample_kills) {
     left_join(player_teams, by = "steamid") %>%
     filter(!is.na(team_name))
   
-  # Identify each team's starting side using rounds 1-12 ONLY
+  # Identify each team's starting side using rounds 1-12
   starting_sides <- player_sides %>%
     filter(round_num <= 12) %>%
     count(file_name, team_name, side, name = "observations") %>%
@@ -261,13 +268,17 @@ identify_team_1_role <- function(sample_kills) {
     ungroup() %>%
     select(file_name, team_name, starting_side = side)
   
-  # Extract Team 1 from each filename
+  # Extract team names from filenames
   matches <- sample_kills %>%
     distinct(file_name) %>%
     mutate(
       team_1 = purrr::map_chr(
         file_name,
         ~ get_team_names(.x)$team_1_name
+      ),
+      team_2 = purrr::map_chr(
+        file_name,
+        ~ get_team_names(.x)$team_2_name
       )
     )
   
@@ -281,6 +292,7 @@ identify_team_1_role <- function(sample_kills) {
   
   # Assign Team 1's role, switching at round 13
   sample_kills %>%
+    left_join(matches, by = "file_name") %>%
     left_join(team_1_starting_side, by = "file_name") %>%
     mutate(
       team_1_role = case_when(
@@ -298,8 +310,90 @@ identify_team_1_role <- function(sample_kills) {
     select(-team_1_starting_side)
 }
 
-clean_data <- function(rounds, kills) {
+clean_data <- function(rounds, kills, rankings) {
   
+  
+  # Don't include overtime games
+  rounds <- remove_overtime(rounds)
+  
+  # Identify team 1's role (CT/T)
+  kills <- identify_team_1_role(kills) |>
+    select(file_name, round_num, team_1, team_2, team_1_role) |>
+    unique()
+  rounds <- rounds |>
+    left_join(kills, by = c("file_name", "round_num")) |>
+    filter(!is.na(team_1) & !is.na(team_2))
+  
+  
+  # Extract team elo
+
+  return(rounds)
+}
+
+get_historical_team_elo <- function(rounds, historical_elo) {
+  
+  # Prepare historical ELO data
+  elo <- historical_elo %>%
+    transmute(
+      date = as.Date(date),
+      team = str_to_lower(
+        stri_trans_general(str_trim(team), "Latin-ASCII")
+      ) %>%
+        str_replace_all("\\s+", "-"),
+      points
+    ) %>%
+    distinct(date, team, .keep_all = TRUE)
+  
+  # Prepare round data
+  result <- rounds %>%
+    mutate(
+      date = as.Date(date),
+      team_1 = str_to_lower(
+        stri_trans_general(str_trim(team_1), "Latin-ASCII")
+      ) %>%
+        str_replace_all("\\s+", "-"),
+      team_2 = str_to_lower(
+        stri_trans_general(str_trim(team_2), "Latin-ASCII")
+      ) %>%
+        str_replace_all("\\s+", "-"),
+      row_id = row_number()
+    )
+  
+  # Create lookup tables
+  team_1_lookup <- result %>%
+    select(row_id, date, team = team_1) %>%
+    as.data.table()
+  
+  team_2_lookup <- result %>%
+    select(row_id, date, team = team_2) %>%
+    as.data.table()
+  
+  # Prepare historical data for rolling joins
+  elo_dt <- as.data.table(elo)
+  setkey(elo_dt, team, date)
+  
+  # Retrieve latest available ratings
+  team_1_points <- elo_dt[
+    team_1_lookup,
+    on = .(team, date),
+    roll = Inf,
+    x.points
+  ]
+  
+  team_2_points <- elo_dt[
+    team_2_lookup,
+    on = .(team, date),
+    roll = Inf,
+    x.points
+  ]
+  
+  # Return results
+  result %>%
+    mutate(
+      team_1_points = team_1_points,
+      team_2_points = team_2_points
+    ) %>%
+    select(-row_id)
 }
 
 plot_equipment_by_first_winner <- function(sample_rounds, first_winner) {
