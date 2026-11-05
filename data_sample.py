@@ -14,7 +14,15 @@ def pipeline(urls):
     parsed_demo_samples = []
     parsed_demo_kills = []
 
+    parsed_count = 0
+
+    # Create data directory
+    os.makedirs("./data", exist_ok=True)
+
     for url in urls:
+        # Print url
+        print(url)
+
         # Get HLTV demo ID from the URL
         demo_id = re.search(r"/demo/(\d+)", url).group(1)
 
@@ -32,6 +40,7 @@ def pipeline(urls):
             continue
 
         for demo_file in demo_files:
+
             # Get the map name
             filename = os.path.basename(demo_file)
 
@@ -39,10 +48,11 @@ def pipeline(urls):
 
             if match:
                 map_name = match.group(1)
-            else: # There was only one map played
-                map_name = re.search(r"-([^-]+)\.dem$", filename).group(1)
+            else:
+                match = re.search(r"-([^-]+)\.dem$", filename)
+                map_name = match.group(1) if match else None
 
-            # If demo file fails to parse, prepare to skip it
+            # Parse demo
             result = parse_demo(demo_file, delete_demo=True)
 
             if result is None:
@@ -50,7 +60,7 @@ def pipeline(urls):
 
             sample, kills = result
 
-            # Add identifiers as the first two columns
+            # Add identifiers as the first columns
             for df in (sample, kills):
                 df.insert(0, "map_name", map_name)
                 df.insert(0, "file_name", filename)
@@ -59,15 +69,57 @@ def pipeline(urls):
             parsed_demo_samples.append(sample)
             parsed_demo_kills.append(kills)
 
-    # Combine all demos into two data frames
-    full_samples = pd.concat(parsed_demo_samples, ignore_index=True)
-    full_kills = pd.concat(parsed_demo_kills, ignore_index=True)
+            parsed_count += 1
 
-    # Save csv files in the data folder
-    os.makedirs("./data", exist_ok = True)
+            # Save checkpoint every 10 successfully parsed demos
+            if parsed_count % 10 == 0:
 
-    full_samples.to_csv("./data/sample_rounds.csv", index = False)
-    full_kills.to_csv("./data/sample_kills.csv", index = False)
+                print(f"Saving checkpoint after {parsed_count} demos...")
+
+                full_samples = pd.concat(
+                    parsed_demo_samples,
+                    ignore_index=True
+                )
+
+                full_kills = pd.concat(
+                    parsed_demo_kills,
+                    ignore_index=True
+                )
+
+                full_samples.to_csv(
+                    "./data/sample_rounds.csv",
+                    index=False
+                )
+
+                full_kills.to_csv(
+                    "./data/sample_kills.csv",
+                    index=False
+                )
+
+    # Final save (captures any remaining demos)
+    if parsed_demo_samples:
+
+        full_samples = pd.concat(
+            parsed_demo_samples,
+            ignore_index=True
+        )
+
+        full_kills = pd.concat(
+            parsed_demo_kills,
+            ignore_index=True
+        )
+
+        full_samples.to_csv(
+            "./data/sample_rounds.csv",
+            index=False
+        )
+
+        full_kills.to_csv(
+            "./data/sample_kills.csv",
+            index=False
+        )
+
+    print(f"Pipeline finished. Successfully parsed {parsed_count} demos.")
 
     return full_samples, full_kills
 
@@ -354,7 +406,7 @@ def parse_demo(demo_file, delete_demo=False):
 
         # Attach demo creation date to each sample
         demo_date = pd.to_datetime(
-            os.path.getctime(demo_file),
+            os.path.getmtime(demo_file),
             unit="s"
         ).date()
 
