@@ -332,13 +332,13 @@ clean_data <- function(rounds, kills, rankings) {
     left_join(kills, by = c("file_name", "round_num")) |>
     filter(!is.na(team_1) & !is.na(team_2))
   
-  # If a round in a matchhas
-  
   # Extract team elo
   rounds <- get_historical_team_elo(rounds, rankings)
   
-  # If a team has no ranking, don't include
-  rounds <- rounds |> filter(!is.na(team_1_points) & !is.na(team_2_points))
+  # If a team has no ranking or HLTV score of 0, don't include
+  rounds <- rounds |> 
+    filter(!is.na(team_1_points) & !is.na(team_2_points)) |>
+    filter(team_1_points != 0 & team_2_points != 0)
   
   # Don't include overtime games
   rounds <- remove_overtime(rounds)
@@ -368,13 +368,18 @@ clean_data <- function(rounds, kills, rankings) {
   # Find pistol rounds
   rounds <- is_pistol_round(rounds)
   
+  # Calculate log diff equip
+  rounds <- rounds |>
+    mutate(log_diff_equip_gap_ct = log((ct_equip + 1) / (t_equip + 1)))
+  
   # Denote whether team_1 wins or loses
-  # Denote team_1 equip gap
+  # Denote team_1 equip gap (standard and log)
   
   rounds <- rounds |> 
     mutate(
       team_1_win = if_else(winner == team_1_role, TRUE, FALSE),
-      team_1_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct)
+      team_1_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct),
+      team_1_log_diff_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, 1 / equip_gap_ct)
     )
 
   
