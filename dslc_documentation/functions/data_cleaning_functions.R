@@ -324,10 +324,6 @@ clean_data <- function(rounds, kills, rankings) {
   kills <- kills |>
     filter(!str_starts(file_name, "incomplete.dem"))
   
-  
-  # Don't include overtime games
-  rounds <- remove_overtime(rounds)
-  
   # Identify team 1's role (CT/T)
   kills <- identify_team_1_role(kills) |>
     select(file_name, round_num, team_1, team_2, team_1_role) |>
@@ -336,11 +332,37 @@ clean_data <- function(rounds, kills, rankings) {
     left_join(kills, by = c("file_name", "round_num")) |>
     filter(!is.na(team_1) & !is.na(team_2))
   
+  # If a round in a matchhas
   
   # Extract team elo
-
+  rounds <- get_historical_team_elo(rounds, rankings)
+  
+  # If a team has no ranking, don't include
+  rounds <- rounds |> filter(!is.na(team_1_points) & !is.na(team_2_points))
+  
+  # Don't include overtime games
+  rounds <- remove_overtime(rounds)
+  
+  # ct_purchase_cost and t_purchase_cost being NA means no one on the team bought new equip
+  rounds <- rounds |>
+    mutate(
+      ct_purchase_cost = if_else(is.na(ct_purchase_cost), 0, ct_purchase_cost),
+      t_purchase_cost = if_else(is.na(t_purchase_cost), 0, t_purchase_cost),
+      purchase_cost_gap_ct = ct_purchase_cost - t_purchase_cost
+    )
+  
+  
+  # If a match has a round that's missing t_equip, ct_equip then remove
+  bad_matches <- rounds |> group_by(file_name) |>
+    summarise(na = sum(is.na(equip_gap_ct))) |>
+    filter(na > 0) |>
+    select(file_name)
+  
+  rounds <- rounds |> anti_join(bad_matches, by = "file_name")
+  
   return(rounds)
 }
+
 
 get_historical_team_elo <- function(rounds, historical_elo) {
   
