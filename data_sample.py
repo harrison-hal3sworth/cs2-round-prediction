@@ -457,7 +457,7 @@ def parse_demo(demo_file, delete_demo=False):
         return sample, kills
 
     except Exception as e:
-        print(f"Skipping demo file: {demo_filef}")
+        print(f"Skipping demo file: {demo_file}")
         print(f"Error: {type(e).__name__}: {e}")
 
         if delete_demo and os.path.exists(demo_file):
@@ -486,7 +486,7 @@ base_url = "https://www.hltv.org/download/demo/"
 
 urls = [
     f"{base_url}{demo_id}"
-    for demo_id in range(112331, 112974)
+    for demo_id in range(112539, 112974)
 ]
 
 parsed_demo_samples, parsed_demo_kills = pipeline(urls)
