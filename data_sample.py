@@ -8,6 +8,10 @@ import pandas as pd
 from awpy import Demo
 
 
+# Run into CMD
+# "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\ChromePlaywrightProfile"
+#
+#
 
 def pipeline(urls):
 
@@ -129,39 +133,53 @@ async def download_url(url):
     os.makedirs(output_dir, exist_ok=True)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
+        browser = await p.chromium.connect_over_cdp(
+            "http://127.0.0.1:9222"
+        )
+
+        context = browser.contexts[0]
+
+        page = (
+            context.pages[0]
+            if context.pages
+            else await context.new_page()
+        )
+
+        download = None
 
         try:
-            # Time out within 5 seconds without download starting
-            async with page.expect_download(timeout=5000) as download_info:
+            async with page.expect_download(timeout=30000) as download_info:
                 try:
                     await page.goto(url)
                 except Exception as e:
-                    # HLTV causes Playwright to report
-                    # "Download is starting" as a navigation error.
                     if "Download is starting" not in str(e):
                         raise
 
             download = await download_info.value
 
-            filename = download.suggested_filename
-            output_path = os.path.join(output_dir, filename)
+            output_path = os.path.join(
+                output_dir,
+                download.suggested_filename
+            )
 
             await download.save_as(output_path)
 
             return output_path
 
         except Exception as e:
-            print(f"No download detected within 10 seconds or download failed: {url}")
+            print(f"Download failed: {url}")
             print(f"{type(e).__name__}: {e}")
+            print("Page title:", await page.title())
+            print("Page URL:", page.url)
+
             return None
 
         finally:
-            await browser.close()
-
-
-
+            if download is not None:
+                try:
+                    await download.delete()
+                except Exception as e:
+                    print(f"Failed to delete temporary download: {e}")
 
 def extract_rar(rar_path):
 
@@ -439,7 +457,7 @@ def parse_demo(demo_file, delete_demo=False):
         return sample, kills
 
     except Exception as e:
-        print(f"Skipping demo file: {demo_file}")
+        print(f"Skipping demo file: {demo_filef}")
         print(f"Error: {type(e).__name__}: {e}")
 
         if delete_demo and os.path.exists(demo_file):
@@ -468,7 +486,7 @@ base_url = "https://www.hltv.org/download/demo/"
 
 urls = [
     f"{base_url}{demo_id}"
-    for demo_id in range(111974, 112974)
+    for demo_id in range(112331, 112974)
 ]
 
 parsed_demo_samples, parsed_demo_kills = pipeline(urls)
