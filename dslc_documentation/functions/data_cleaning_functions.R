@@ -353,12 +353,30 @@ clean_data <- function(rounds, kills, rankings) {
   
   
   # If a match has a round that's missing t_equip, ct_equip then remove
+  # If a match has a round that's missing team 1 role, remove
   bad_matches <- rounds |> group_by(file_name) |>
-    summarise(na = sum(is.na(equip_gap_ct))) |>
-    filter(na > 0) |>
+    summarise(
+      na_equip = sum(is.na(equip_gap_ct)),
+      na_team_role = sum(is.na(team_1_role))
+      ) |>
+    filter(na_equip > 0 | na_team_role >0) |>
     select(file_name)
   
   rounds <- rounds |> anti_join(bad_matches, by = "file_name")
+  
+  
+  # Find pistol rounds
+  rounds <- is_pistol_round(rounds)
+  
+  # Denote whether team_1 wins or loses
+  # Denote team_1 equip gap
+  
+  rounds <- rounds |> 
+    mutate(
+      team_1_win = if_else(winner == team_1_role, TRUE, FALSE),
+      team_1_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct)
+    )
+
   
   return(rounds)
 }
