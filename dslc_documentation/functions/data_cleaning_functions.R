@@ -379,7 +379,7 @@ clean_data <- function(rounds, kills, rankings) {
     mutate(
       team_1_win = if_else(winner == team_1_role, TRUE, FALSE),
       team_1_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct),
-      team_1_log_diff_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, 1 / equip_gap_ct)
+      team_1_log_diff_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct)
     )
 
   
