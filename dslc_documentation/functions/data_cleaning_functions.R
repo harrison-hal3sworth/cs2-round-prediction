@@ -324,10 +324,6 @@ clean_data <- function(rounds, kills, rankings) {
   kills <- kills |>
     filter(!str_starts(file_name, "incomplete.dem"))
   
-  
-  # Don't include overtime games
-  rounds <- remove_overtime(rounds)
-  
   # Identify team 1's role (CT/T)
   kills <- identify_team_1_role(kills) |>
     select(file_name, round_num, team_1, team_2, team_1_role) |>
@@ -336,11 +332,60 @@ clean_data <- function(rounds, kills, rankings) {
     left_join(kills, by = c("file_name", "round_num")) |>
     filter(!is.na(team_1) & !is.na(team_2))
   
-  
   # Extract team elo
+  rounds <- get_historical_team_elo(rounds, rankings)
+  
+  # If a team has no ranking or HLTV score of 0, don't include
+  rounds <- rounds |> 
+    filter(!is.na(team_1_points) & !is.na(team_2_points)) |>
+    filter(team_1_points != 0 & team_2_points != 0)
+  
+  # Don't include overtime games
+  rounds <- remove_overtime(rounds)
+  
+  # ct_purchase_cost and t_purchase_cost being NA means no one on the team bought new equip
+  rounds <- rounds |>
+    mutate(
+      ct_purchase_cost = if_else(is.na(ct_purchase_cost), 0, ct_purchase_cost),
+      t_purchase_cost = if_else(is.na(t_purchase_cost), 0, t_purchase_cost),
+      purchase_cost_gap_ct = ct_purchase_cost - t_purchase_cost
+    )
+  
+  
+  # If a match has a round that's missing t_equip, ct_equip then remove
+  # If a match has a round that's missing team 1 role, remove
+  bad_matches <- rounds |> group_by(file_name) |>
+    summarise(
+      na_equip = sum(is.na(equip_gap_ct)),
+      na_team_role = sum(is.na(team_1_role))
+      ) |>
+    filter(na_equip > 0 | na_team_role >0) |>
+    select(file_name)
+  
+  rounds <- rounds |> anti_join(bad_matches, by = "file_name")
+  
+  
+  # Find pistol rounds
+  rounds <- is_pistol_round(rounds)
+  
+  # Calculate log diff equip
+  rounds <- rounds |>
+    mutate(log_diff_equip_gap_ct = log((ct_equip + 1) / (t_equip + 1)))
+  
+  # Denote whether team_1 wins or loses
+  # Denote team_1 equip gap (standard and log)
+  
+  rounds <- rounds |> 
+    mutate(
+      team_1_win = if_else(winner == team_1_role, TRUE, FALSE),
+      team_1_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct),
+      team_1_log_diff_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct)
+    )
 
+  
   return(rounds)
 }
+
 
 get_historical_team_elo <- function(rounds, historical_elo) {
   
