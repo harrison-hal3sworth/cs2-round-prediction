@@ -324,6 +324,34 @@ clean_data <- function(rounds, kills, rankings) {
   kills <- kills |>
     filter(!str_starts(file_name, "incomplete.dem"))
   
+  # Fix map names
+  maps <- c(
+    "dust2", "mirage", "inferno", "nuke",
+    "ancient", "anubis", "overpass", "train",
+    "vertigo", "cache"
+  )
+  
+  rounds <- rounds |>
+    mutate(
+      map_name = case_when(
+        map_name %in% maps ~ map_name,
+        str_detect(map_name, str_c(maps, collapse = "|")) ~
+          str_extract(map_name, str_c(maps, collapse = "|")),
+        TRUE ~ map_name
+      )
+    )
+  
+  # Other manual fixes for map names
+  rounds <- rounds |>
+    mutate(
+      map_name = recode(
+        map_name,
+        "dust" = "dust2",
+        "dus2" = "dust2",
+        "dust-p1" = "dust2"
+      )
+    )
+  
   # Identify team 1's role (CT/T)
   kills <- identify_team_1_role(kills) |>
     select(file_name, round_num, team_1, team_2, team_1_role) |>
