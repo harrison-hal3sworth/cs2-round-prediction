@@ -482,11 +482,24 @@ get_historical_team_points <- function(rounds, historical_points) {
 
 plot_equipment_by_first_winner <- function(sample_rounds, first_winner) {
   
+  first_round_results <- sample_rounds |>
+    filter(round_num == 1) |>
+    group_by(file_id, file_name, map_name) |>
+    summarise(
+      first_round_winner = first(winner),
+      .groups = "drop"
+    )
+  
   plot_data <- sample_rounds |>
-    group_by(file_id, map_name) |>
-    filter(first(winner[round_num == 1]) == first_winner) |>
-    ungroup() |>
-    filter(round_num >= 1, round_num <= 12) |>
+    inner_join(
+      first_round_results,
+      by = c("file_id", "file_name", "map_name")
+    ) |>
+    filter(
+      first_round_winner == first_winner,
+      round_num >= 1,
+      round_num <= 12
+    ) |>
     pivot_longer(
       cols = c(ct_equip, t_equip),
       names_to = "side",
@@ -506,7 +519,7 @@ plot_equipment_by_first_winner <- function(sample_rounds, first_winner) {
       .groups = "drop"
     )
   
-  ggplot() +
+  g <- ggplot() +
     geom_line(
       data = plot_data,
       aes(
@@ -561,4 +574,7 @@ plot_equipment_by_first_winner <- function(sample_rounds, first_winner) {
       plot.title = element_text(face = "bold"),
       legend.position = "top"
     )
+  
+  return(g)
 }
+
