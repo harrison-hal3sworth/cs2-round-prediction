@@ -39,7 +39,7 @@ test_logit_model <- function(formula, train_data, test_data) {
 
 test_logit_model(
   team_1_win ~ 
-    team_1_role +
+    map_name:team_1_role +
     team_1_log_diff_equip_gap +
     I(log(team_1_points / team_2_points)), 
   train_data, 
