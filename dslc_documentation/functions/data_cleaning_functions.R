@@ -310,6 +310,21 @@ identify_team_1_role <- function(sample_kills) {
     select(-team_1_starting_side)
 }
 
+add_previous_round_winner <- function(data) {
+  
+  data |>
+    group_by(file_id, file_name, map_name) |>
+    arrange(round_num, .by_group = TRUE) |>
+    mutate(
+      team_1_won_previous = if_else(
+        round_num %in% c(1, 13),
+        NA,
+        lag(team_1_win)
+      )
+    ) |>
+    ungroup()
+}
+
 clean_data <- function(rounds, kills, rankings) {
   
   # Remove incomplete games
@@ -400,6 +415,45 @@ clean_data <- function(rounds, kills, rankings) {
   rounds <- rounds |>
     mutate(log_diff_equip_gap_ct = log((ct_equip + 1) / (t_equip + 1)))
   
+  
+  # Create team-relative economy variables
+  rounds <- rounds |>
+    mutate(
+      team_1_starting_cash = if_else(
+        team_1_role == "counter-terrorist",
+        ct_starting_cash, t_starting_cash
+      ),
+      team_2_starting_cash = if_else(
+        team_1_role == "counter-terrorist",
+        t_starting_cash, ct_starting_cash
+      ),
+      team_1_carried_equip = if_else(
+        team_1_role == "counter-terrorist",
+        ct_carried_equip, t_carried_equip
+      ),
+      team_2_carried_equip = if_else(
+        team_1_role == "counter-terrorist",
+        t_carried_equip, ct_carried_equip
+      ),
+      team_1_purchase_cost = if_else(
+        team_1_role == "counter-terrorist",
+        ct_purchase_cost, t_purchase_cost
+      ),
+      team_2_purchase_cost = if_else(
+        team_1_role == "counter-terrorist",
+        t_purchase_cost, ct_purchase_cost
+      ),
+      team_1_equip = if_else(
+        team_1_role == "counter-terrorist",
+        ct_equip, t_equip
+      ),
+      team_2_equip = if_else(
+        team_1_role == "counter-terrorist",
+        t_equip, ct_equip
+      )
+    )
+  
+  
   # Denote whether team_1 wins or loses
   # Denote team_1 equip gap (standard and log)
   
@@ -409,10 +463,15 @@ clean_data <- function(rounds, kills, rankings) {
       team_1_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct),
       team_1_log_diff_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct)
     )
+  
+  
 
+  # Add whether team 1 won previous round (momentum)
+  rounds <- add_previous_round_winner(rounds)
   
   return(rounds)
 }
+
 
 
 get_historical_team_points <- function(rounds, historical_points) {

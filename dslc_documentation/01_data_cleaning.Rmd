@@ -183,6 +183,8 @@ We then identify pistol rounds and construct a relative equipment measure. The l
 
 The equipment difference and round outcome can then be expressed from Team 1's perspective. This ensures that the direction of each variable is consistent regardless of which side Team 1 is playing. The corresponding team-relative variables are created in the cleaning functions.
 
+It is also important to investigate momentum in our model. The `add_previous_round_winner()` function finds whether or not team 1 won the previous round.
+
 # 3. Exploratory Data Analysis
 
 Before fitting predictive models, we examine how team equipment values evolve throughout a half and whether winning the opening round is associated with an economic advantage in subsequent rounds.
@@ -279,6 +281,25 @@ We also compare equipment progression according to which side won the first roun
 plot_equipment_by_first_winner(data, "counter-terrorist")
 plot_equipment_by_first_winner(data, "terrorist")
 ```
+
+# 3.3 Previous Round Win Impact
+
+It is worth investigating whether or not momentum has a significant impact on a team's chances for victory. Let's quickly investigate the impact of a previous round's outcome.
+
+```{r momentum}
+data |> 
+  group_by(team_1_won_previous) |> 
+  summarise(
+    n = n(),
+    team_1_win_pct = sum(team_1_win) / n()
+    )
+```
+
+Note that `NA` refers to rounds 1 and 13. We can observe some correlation between the outcome of previous round and the outcome of the current round. Let's investigate some reasons why momentum may have significance.
+
+*Retained equipment*
+
+
 
 # 4. Baseline Logistic Regression Models
 
