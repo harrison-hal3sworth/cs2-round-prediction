@@ -298,7 +298,21 @@ data |>
 Note that `NA` refers to rounds 1 and 13. We can observe some correlation between the outcome of previous round and the outcome of the current round. Let's investigate some reasons why momentum may have significance.
 
 *Retained equipment*
+```{r}
+data |>
+  ggplot(aes(x = team_1_carried_equip)) +
+    geom_boxplot() +
+    facet_wrap(~team_1_won_previous)
+```
 
+*Starting cash*
+```{r}
+data |>
+  filter(team_1_starting_cash < 100000) |>
+  ggplot(aes(x = team_1_starting_cash)) +
+    geom_boxplot() +
+    facet_wrap(~team_1_won_previous)
+```
 
 
 # 4. Baseline Logistic Regression Models
