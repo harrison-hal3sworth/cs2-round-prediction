@@ -1,6 +1,8 @@
 ---
 title: "01_data_cleaning"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -10,177 +12,290 @@ knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 source("functions/data_cleaning_functions.R")
 ```
 
-```{r read csv}
+```{r read-data}
 sample_kills <- read.csv("./data/sample_kills_110800-112973.csv")
 sample_rounds <- read.csv("./data/sample_rounds_110800-112973.csv")
-historical_team_elo <- read.csv("hltv_historical_rankings.csv")
+historical_team_points <- read.csv("hltv_historical_rankings.csv")
 ```
 
-```{r summary}
-summary(sample_kills)
-summary(sample_rounds)
+# 1. Data Overview
+
+We work with two primary datasets extracted from CS2 match demos: a round-level dataset (`sample_rounds`) and a kill-event dataset (`sample_kills`).
+
+The round-level dataset contains information about each round's outcome and the economic conditions of both teams. The kill-event dataset records individual eliminations, including the players involved, their respective sides, and characteristics of each kill.
+
+We also incorporate historical HLTV team rankings to provide a time-dependent measure of team strength. The following data dictionaries summarize the variables most relevant to the subsequent cleaning, feature construction, and modeling stages.
+
+## 1.1 Round-Level Data (`sample_rounds`)
+
+Each observation represents one round within a particular map.
+
+| Variable | Description |
+|:---|:---|
+| `file_id` | Identifier associated with the demo file. |
+| `file_name` | Name of the demo file, identifying the match and map. |
+| `map_name` | Name of the map played (e.g., Mirage, Inferno, Nuke). |
+| `date` | Date on which the match was played. |
+| `round_num` | Sequential round number within the map. |
+| `ct_team` | Always `"counter-terrorist"`. |
+| `t_team` | Always `"terrorist"`. |
+| `winner` | Side that won the round (`counter-terrorist` or `terrorist`). |
+| `reason` | Reason the round ended (e.g., `ct_win`, `bomb_defused`, `target_bombed`). |
+| `planted` | Indicates whether the bomb was planted during the round. |
+| `ct_starting_cash` / `t_starting_cash` | Total starting cash available to each side at the beginning of the round. |
+| `starting_cash_gap_ct` | Difference in starting cash (CT - T). |
+| `ct_carried_equip` / `t_carried_equip` | Value of equipment carried into the round by each side. |
+| `carried_equip_gap_ct` | Difference in carried equipment value (CT - T). |
+| `ct_purchase_cost` / `t_purchase_cost` | Total value spent on equipment purchases by each side during the buy phase. |
+| `purchase_cost_gap_ct` | Difference in purchase costs (CT- T). |
+| `ct_equip` / `t_equip` | Total equipment value held by each side at the beginning of the round. |
+| `equip_gap_ct` | Difference in total equipment value (CT - T). |
+
+## 1.2 Kill-Event Data (`sample_kills`)
+
+Each observation represents an individual kill event recorded during a map.
+
+| Variable | Description |
+|:---|:---|
+| `file_id` | Identifier associated with the downloaded demo. |
+| `file_name` | Name of the demo file, identifying the match and map. |
+| `map_name` | Name of the map played. |
+| `attacker_name` | Player responsible for the kill. |
+| `attacker_steamid` | Unique ID of the player responsible for the kill. |
+| `attacker_side` | Team side of the attacking player (`counter-terrorist` or `terrorist`). |
+| `victim_name` | Player eliminated by the attacker. |
+| `victim_steamid` | Unique ID of the player eliminated by the attacker. |
+| `victim_side` | Team side of the eliminated player. |
+| `assister_name` | Player credited with assisting the kill, if applicable. |
+| `assister_steamid` | Unique ID of the player credited with assisting the kill, if applicable. |
+| `assister_side` | Team side of the assisting player. |
+| `weapon` | Weapon used to secure the kill. |
+| `headshot` | Indicates whether the kill was a headshot. |
+| `assist_flash` | Indicates whether a flashbang thrown by a teammate assisted the kill. |
+| `is_trade` | Indicates whether the kill was a trade kill. |
+| `victim_traded` | Indicates whether the victim was subsequently traded. |
+| `tick` | Demo tick at which the kill occurred. |
+| `round_num` | Round associated with the kill, when available. |
+
+## 1.3 Historical Team HLTV Points Data (`historical_team_points`)
+
+Each observation represents a team's ranking and associated HLTV points on a particular date.
+
+HLTV points provide a time-dependent measure of competitive team strength. They reflect factors such as recent match results, opponent strength, and tournament performance, with points decaying over time to place greater emphasis on more recent results.
+
+| Variable | Description |
+|:---|:---|
+| `date` | Date on which the ranking was recorded. |
+| `team` | Name of the team. |
+| `rank` | Team's position in the HLTV world rankings. |
+| `points` | Number of HLTV ranking points accumulated by the team. |
+
+## 1.4 Challenges
+
+One limitation of our datasets is that the actual team names are not provided directly. However, we can extract this information from the structure of the `file_name` variable. For example, `saw-youngsters-vs-noir-verse-m1-mirage.dem` identifies a match between *Saw Youngsters* and *Noir Verse*. By convention, we define the first team listed in the filename as **Team 1** and the second as **Team 2**. Using this naming convention, the `get_team_names()` function recovers the participating teams, with a few exceptions requiring additional handling.
+
+A more challenging issue is determining which team begins the map on each side. Although teams switch sides after the first 12 rounds, the datasets do not explicitly identify which team initially plays as Counter-Terrorist or Terrorist. Consequently, we must infer the starting sides for each map before we can consistently identify teams across rounds. Importantly, Team 1 and Team 2 remain fixed throughout the map, regardless of side switches.
+
+# 2. Data Cleaning and Processing
+
+Before developing our predictive models, we address inconsistencies in the raw demo data and construct variables that allow us to track teams consistently across rounds.
+
+## 2.1 Identifying Teams and Starting Sides
+
+We first recover the two team names from each demo filename using `get_team_names()`. The first team listed is designated Team 1, and the second is designated Team 2.
+
+Since the round-level data identifies teams by their current side rather than their actual names, we also need to determine which team begins as Counter-Terrorist and which begins as Terrorist. The `create_player_team_matrix()` and `identify_team_1_role()` functions use player identities and their observed sides during the first 12 rounds to infer these assignments. This allows us to track each team consistently, even after the sides switch at round 13.
+
+## 2.2 Matching Historical Team Strength
+
+To account for differences in team ability, we incorporate historical HLTV points using `get_historical_team_points()`. This function matches each team to its most recent available ranking on or before the match date.
+
+Rounds without usable ranking information for either team are excluded because the relative team-strength measure cannot be calculated reliably.
+
+## 2.3 Investigating and Cleaning Round Data
+
+We begin by examining the number of maps and the number of rounds recorded for each map. This helps identify unusually long maps that may include overtime or data-quality issues.
+
+```{r map-count}
+n_maps <- sample_rounds |>
+  distinct(file_name) |>
+  nrow()
+
+n_maps
 ```
 
-```{r}
-sample_rounds |> filter(is.na(purchase_cost_gap_ct)) |> select(file_id, map_name, round_num, winner, reason)
+```{r rounds-per-map}
+sample_rounds |>
+  group_by(file_id, map_name, file_name) |>
+  summarise(num_rounds = max(round_num, na.rm = TRUE), .groups = "drop") |>
+  arrange(desc(num_rounds)) |>
+  print(n = 30)
 ```
 
-```{r number of maps}
-sample_rounds |> select(file_name) |> unique() |> nrow()
-```
+Maps may extend beyond 24 rounds when overtime is played. We inspect these maps separately to distinguish genuine overtime from possible demo-data errors. In this sample, the map `black-phoenix-vs-lph-m1-nuke.dem` appears to contain inaccurate round information, so we exclude it. We also restrict the analysis to the first 24 rounds, corresponding to regulation play.
 
-Looking at the number of rounds per map
-```{r}
-sample_rounds |> 
-  group_by(file_id, map_name, file_name) |> 
-  summarise(num_rounds = max(round_num)) |> 
-  arrange(desc(num_rounds)) |> print(n = 30)
-```
-This still does not entirely solve the problem. There is also the concept of overtime. We should ensure that all of these games are truly in overtime with a quick calculation.
-
-```{r overtime}
-overtime_games <- sample_rounds |> 
-  group_by(file_name) |> 
-  summarise(
-    num_rounds = max(round_num),
-    .groups = "drop"
-  ) |>
+```{r inspect-overtime}
+overtime_games <- sample_rounds |>
+  group_by(file_name) |>
+  summarise(num_rounds = max(round_num, na.rm = TRUE), .groups = "drop") |>
   filter(num_rounds > 24) |>
   arrange(desc(num_rounds)) |>
   select(file_name)
 
 sample_rounds |>
-  semi_join(overtime_games, by = "file_name") |> 
+  semi_join(overtime_games, by = "file_name") |>
   filter(round_num <= 24) |>
   group_by(file_name) |>
   summarise(
-    ct_team_1_wins = sum(winner[round_num <= 12] == "counter-terrorist", na.rm = TRUE),
-    t_team_1_wins = sum(winner[round_num >= 13 & round_num <= 24] == "terrorist", na.rm = TRUE),
+    ct_team_1_wins = sum(
+      winner[round_num <= 12] == "counter-terrorist",
+      na.rm = TRUE
+    ),
+    t_team_1_wins = sum(
+      winner[round_num >= 13 & round_num <= 24] == "terrorist",
+      na.rm = TRUE
+    ),
     total_wins = ct_team_1_wins + t_team_1_wins,
     .groups = "drop"
   ) |>
   arrange(total_wins)
 ```
 
-Only *black-phoenix-vs-lph-m1-nuke.dem* is inaccurate. Looking into the game itself, it appears this is some explainable error. We will exclude this map in our study. We can also exclude all rounds after round 24 for now.
+We then apply `remove_overtime()` to remove rounds after round 24 and exclude the identified inaccurate map.
 
-```{r}
+```{r remove-overtime}
 sample_rounds_cleaned <- remove_overtime(sample_rounds)
 
-sample_rounds_cleaned |> 
-  group_by(file_id, map_name, file_name) |> 
-  summarise(num_rounds = max(round_num)) |> 
-  arrange(desc(num_rounds)) |> print(n = 30)
+sample_rounds_cleaned |>
+  group_by(file_id, map_name, file_name) |>
+  summarise(num_rounds = max(round_num, na.rm = TRUE), .groups = "drop") |>
+  arrange(desc(num_rounds)) |>
+  print(n = 30)
 ```
 
-This should work for now. Let's look at the remaining *NA* values for economy.
+Next, we inspect missing equipment values. These missing values appear primarily in pistol rounds, when teams begin with limited equipment. We retain these observations where possible, since pistol rounds are an important part of a map, but avoid using missing values in calculations that require equipment information.
 
-```{r}
-summary(sample_rounds_cleaned)
+## 2.4 Constructing the Modeling Dataset
 
-sample_rounds_cleaned |> filter(is.na(ct_equip))
+We combine round-level information with kill-event information using `first_round_kill()`. This identifies the first elimination in each round and makes it possible to examine whether securing the opening kill is associated with winning the round.
+
+We then identify pistol rounds and construct a relative equipment measure. The logarithm of the equipment ratio expresses the economic advantage proportionally rather than as an absolute dollar difference.
+
+The equipment difference and round outcome can then be expressed from Team 1's perspective. This ensures that the direction of each variable is consistent regardless of which side Team 1 is playing. The corresponding team-relative variables are created in the cleaning functions.
+
+# 3. Exploratory Data Analysis
+
+Before fitting predictive models, we examine how team equipment values evolve throughout a half and whether winning the opening round is associated with an economic advantage in subsequent rounds.
+
+```{r clean data function}
+data <- clean_data(sample_rounds, sample_kills, historical_team_points)
 ```
 
-The issues appear to only occur during pistol rounds (round 1 and 13.)
 
-```{r}
-sample_rounds_cleaned |> filter(file_name == "damajuan-vs-a-nata-m3-inferno.dem")
-```
+## 3.1 Equipment Values Across the First Half
 
+The following plot shows equipment values for both sides across the first 12 rounds. Faint lines represent individual maps, while the bold lines show the average equipment value with 95% confidence intervals.
 
-```{r combine}
-data <- first_round_kill(sample_rounds_cleaned, sample_kills)
-```
-
-```{r pistol round}
-data <- is_pistol_round(data)
-```
-
-```{r relative econ gap}
-data <- data |>
-  mutate(rel_equip_gap_ct = log(ct_equip / t_equip))
-```
-
-```{r remove unnecessary columns}
-data <- data |> select(-ct_team, -t_team)
-```
-
-```{r exploratory graph}
+```{r equipment-progression, fig.width=9, fig.height=6}
 plot_data <- sample_rounds |>
-    filter(round_num >= 1, round_num <= 12) |>
-    pivot_longer(
-        cols = c(ct_equip, t_equip),
-        names_to = "side",
-        values_to = "cash"
-    )
+  filter(round_num >= 1, round_num <= 12) |>
+  pivot_longer(
+    cols = c(ct_equip, t_equip),
+    names_to = "side",
+    values_to = "cash"
+  )
 
 mean_data <- plot_data |>
-    group_by(round_num, side) |>
-    summarise(
-        n = sum(!is.na(cash)),
-        mean_cash = mean(cash, na.rm = TRUE),
-        sd_cash = sd(cash, na.rm = TRUE),
-        se = sd_cash / sqrt(n),
-        t_critical = qt(0.975, df = n - 1),
-        lower = mean_cash - t_critical * se,
-        upper = mean_cash + t_critical * se,
-        .groups = "drop"
-    )
+  group_by(round_num, side) |>
+  summarise(
+    n = sum(!is.na(cash)),
+    mean_cash = mean(cash, na.rm = TRUE),
+    sd_cash = sd(cash, na.rm = TRUE),
+    se = sd_cash / sqrt(n),
+    t_critical = qt(0.975, df = n - 1),
+    lower = mean_cash - t_critical * se,
+    upper = mean_cash + t_critical * se,
+    .groups = "drop"
+  )
 
 ggplot() +
-    geom_line(
-        data = plot_data,
-        aes(
-            x = round_num, y = cash,
-            color = side,
-            group = interaction(file_id, map_name, side)
-        ),
-        alpha = 0.10,
-        linewidth = 0.4
-    ) +
-    geom_errorbar(
-        data = mean_data,
-        aes(
-            x = round_num, ymin = lower, ymax = upper,
-            color = side
-        ),
-        width = 0.15,
-        linewidth = 0.8
-    ) +
-    geom_line(
-        data = mean_data,
-        aes(x = round_num, y = mean_cash, color = side),
-        linewidth = 1.4
-    ) +
-    geom_point(
-        data = mean_data,
-        aes(x = round_num, y = mean_cash, color = side),
-        size = 2
-    ) +
-    scale_color_manual(
-        values = c(ct_equip = "blue", t_equip = "red"),
-        labels = c(ct_equip = "CT", t_equip = "T"),
-        name = "Side"
-    ) +
-    scale_x_continuous(breaks = 1:12) +
-    scale_y_continuous(labels = scales::label_dollar()) +
-    labs(
-        title = "Equipment Value Across the First 12 Rounds",
-        subtitle = "Individual matches in faint lines; bold lines show means with 95% confidence intervals",
-        x = "Round",
-        y = "Mean Team Equipment Value ($)"
-    ) +
-    theme_minimal(base_size = 12) +
-    theme(
-        plot.title = element_text(face = "bold"),
-        legend.position = "top"
-    )
+  geom_line(
+    data = plot_data,
+    aes(
+      x = round_num,
+      y = cash,
+      color = side,
+      group = interaction(file_id, map_name, side)
+    ),
+    alpha = 0.10,
+    linewidth = 0.4
+  ) +
+  geom_errorbar(
+    data = mean_data,
+    aes(
+      x = round_num,
+      ymin = lower,
+      ymax = upper,
+      color = side
+    ),
+    width = 0.15,
+    linewidth = 0.8
+  ) +
+  geom_line(
+    data = mean_data,
+    aes(x = round_num, y = mean_cash, color = side),
+    linewidth = 1.4
+  ) +
+  geom_point(
+    data = mean_data,
+    aes(x = round_num, y = mean_cash, color = side),
+    size = 2
+  ) +
+  scale_color_manual(
+    values = c(ct_equip = "blue", t_equip = "red"),
+    labels = c(ct_equip = "CT", t_equip = "T"),
+    name = "Side"
+  ) +
+  scale_x_continuous(breaks = 1:12) +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  labs(
+    title = "Equipment Value Across the First 12 Rounds",
+    subtitle = "Individual maps in faint lines; bold lines show means with 95% confidence intervals",
+    x = "Round",
+    y = "Mean Team Equipment Value ($)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "top"
+  )
 ```
 
+## 3.2 Equipment Values by Opening-Round Winner
 
+We also compare equipment progression according to which side won the first round. This helps investigate whether the opening-round result is associated with an economic advantage in the rounds that follow.
 
-```{r}
-maps <- data |> select(file_name) |> unique()
+```{r equipment-by-first-winner, fig.width=12, fig.height=6, fig.show='hold', out.width='50%'}
+plot_equipment_by_first_winner(data, "counter-terrorist")
+plot_equipment_by_first_winner(data, "terrorist")
+```
+
+# 4. Baseline Logistic Regression Models
+
+We begin with logistic regression models to establish a baseline relationship between equipment advantage and round outcomes. The first model uses the absolute equipment difference, while the second uses the relative log equipment difference.
+
+The outcome is whether the Counter-Terrorist side wins the round. These baseline models provide a useful point of comparison for more complex models.
+
+## 4.1 Training and Testing Sets
+
+We split the data by map rather than by individual round. This prevents rounds from the same map from appearing in both the training and testing sets.
+
+```{r train-test-split}
+set.seed(0318)
+
+maps <- data |>
+  distinct(file_name)
+
 train_size <- round(nrow(maps) * 0.6)
 
 train_maps <- maps |>
@@ -194,68 +309,4 @@ train_data <- data |>
 
 test_data <- data |>
   semi_join(test_maps, by = "file_name")
-```
-
-```{r}
-plot_equipment_by_first_winner(data, "counter-terrorist")
-plot_equipment_by_first_winner(data, "terrorist")
-```
-
-```{r basic logit}
-stan_model <- glm(
-  winner == "counter-terrorist" ~ equip_gap_ct,
-  data = train_data,
-  family = binomial(link = "logit")
-  )
-rel_model <- glm(
-  winner == "counter-terrorist" ~ rel_equip_gap_ct,
-  data = train_data,
-  family = binomial(link = "logit")
-  )
-
-summary(stan_model)
-exp(coef(stan_model))
-
-summary(rel_model)
-exp(coef(rel_model))
-```
-
-```{r}
-test_data$stan_model_prob_ct_win <- predict(
-    stan_model,
-    newdata = test_data,
-    type = "response"
-)
-
-test_data$stan_model_predicted_winner <- ifelse(
-    test_data$stan_model_prob_ct_win >= 0.5,
-    "counter-terrorist",
-    "terrorist"
-)
-
-test_data$rel_model_prob_ct_win <- predict(
-    rel_model,
-    newdata = test_data,
-    type = "response"
-)
-
-test_data$rel_model_predicted_winner <- ifelse(
-    test_data$rel_model_prob_ct_win >= 0.5,
-    "counter-terrorist",
-    "terrorist"
-)
-
-test_data <- test_data |> 
-  mutate(stan_model_correct = ifelse(winner == stan_model_predicted_winner, TRUE, FALSE),
-         rel_model_correct = ifelse(winner == rel_model_predicted_winner, TRUE, FALSE))
-
-sum(test_data$stan_model_correct) / nrow(test_data)
-
-sum(test_data$rel_model_correct) / nrow(test_data)
-
-test_data |> ggplot() +
-  geom_point(aes(x = equip_gap_ct, y = stan_model_prob_ct_win, color = stan_model_correct))
-
-test_data |> ggplot() +
-  geom_point(aes(x = equip_gap_ct, y = rel_model_prob_ct_win, color = rel_model_correct))
 ```
