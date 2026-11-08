@@ -3,4 +3,5 @@
 cs2-round-prediction.Rproj
 /.Rhistory
 /data/old_data
-/hltv_scraping_errors.csv
+/data/sample_kills_110800-112973.csv
+/data/sample_rounds_110800-112973.csv
