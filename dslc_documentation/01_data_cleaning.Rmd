@@ -11,8 +11,8 @@ source("functions/data_cleaning_functions.R")
 ```
 
 ```{r read csv}
-sample_kills <- read.csv("./data/sample_kills_111974-112538.csv")
-sample_rounds <- read.csv("./data/sample_rounds_111974-112538.csv")
+sample_kills <- read.csv("./data/sample_kills_110800-112973.csv")
+sample_rounds <- read.csv("./data/sample_rounds_110800-112973.csv")
 historical_team_elo <- read.csv("hltv_historical_rankings.csv")
 ```
 
