@@ -360,8 +360,8 @@ clean_data <- function(rounds, kills, rankings) {
     left_join(kills, by = c("file_name", "round_num")) |>
     filter(!is.na(team_1) & !is.na(team_2))
   
-  # Extract team elo
-  rounds <- get_historical_team_elo(rounds, rankings)
+  # Extract team points
+  rounds <- get_historical_team_points(rounds, rankings)
   
   # If a team has no ranking or HLTV score of 0, don't include
   rounds <- rounds |> 
@@ -415,10 +415,9 @@ clean_data <- function(rounds, kills, rankings) {
 }
 
 
-get_historical_team_elo <- function(rounds, historical_elo) {
-  
-  # Prepare historical ELO data
-  elo <- historical_elo %>%
+get_historical_team_points <- function(rounds, historical_points) {
+  # Prepare historical points data
+  points <- historical_points %>%
     transmute(
       date = as.Date(date),
       team = str_to_lower(
@@ -454,18 +453,18 @@ get_historical_team_elo <- function(rounds, historical_elo) {
     as.data.table()
   
   # Prepare historical data for rolling joins
-  elo_dt <- as.data.table(elo)
-  setkey(elo_dt, team, date)
+  points_dt <- as.data.table(points)
+  setkey(points_dt, team, date)
   
   # Retrieve latest available ratings
-  team_1_points <- elo_dt[
+  team_1_points <- points_dt[
     team_1_lookup,
     on = .(team, date),
     roll = Inf,
     x.points
   ]
   
-  team_2_points <- elo_dt[
+  team_2_points <- points_dt[
     team_2_lookup,
     on = .(team, date),
     roll = Inf,
