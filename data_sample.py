@@ -486,7 +486,7 @@ base_url = "https://www.hltv.org/download/demo/"
 
 urls = [
     f"{base_url}{demo_id}"
-    for demo_id in range(112539, 112974)
+    for demo_id in range(110858, 110973)
 ]
 
 parsed_demo_samples, parsed_demo_kills = pipeline(urls)
