@@ -190,7 +190,13 @@ It is also important to investigate momentum in our model. The `add_previous_rou
 Before fitting predictive models, we examine how team equipment values evolve throughout a half and whether winning the opening round is associated with an economic advantage in subsequent rounds.
 
 ```{r clean data function}
-data <- clean_data(sample_rounds, sample_kills, historical_team_points)
+data <- clean_data(
+  sample_rounds,
+  sample_kills,
+  historical_team_points,
+  log_scale_equip_gap = FALSE,
+  log_scale_skill_gap = TRUE
+  )
 ```
 
 
@@ -314,6 +320,28 @@ data |>
     facet_wrap(~team_1_won_previous)
 ```
 
+```{r}
+data |> 
+  ggplot(aes(x = team_1_equip_gap, fill = team_1_win)) +
+    geom_histogram(color = "black", alpha = 0.5) +
+    labs(
+      title = "Distribution of Team 1's Equipment Advantage",
+      subtitle = "Note that a larger equipment advantage tends to correlate with team 1 winning."
+      ) +
+    theme_minimal()
+
+data |> 
+  filter(pistol_round == FALSE) |> 
+  ggplot(aes(x = team_1_equip_gap, fill = team_1_win)) +
+    geom_histogram(color = "black", alpha = 0.5) +
+    facet_wrap(~ team_1_side, ncol = 1) +
+    labs(
+    title = "Distribution of Team 1's Equipment Advantage when Excluding Pistol Rounds",
+    subtitle = "Note that a larger equipment advantage tends to correlate with team 1 winning."
+    ) +
+    theme_minimal()
+```
+
 
 # 4. Baseline Logistic Regression Models
 
@@ -321,27 +349,4 @@ We begin with logistic regression models to establish a baseline relationship be
 
 The outcome is whether the Counter-Terrorist side wins the round. These baseline models provide a useful point of comparison for more complex models.
 
-## 4.1 Training and Testing Sets
 
-We split the data by map rather than by individual round. This prevents rounds from the same map from appearing in both the training and testing sets.
-
-```{r train-test-split}
-set.seed(0318)
-
-maps <- data |>
-  distinct(file_name)
-
-train_size <- round(nrow(maps) * 0.6)
-
-train_maps <- maps |>
-  slice_sample(n = train_size)
-
-test_maps <- maps |>
-  anti_join(train_maps, by = "file_name")
-
-train_data <- data |>
-  semi_join(train_maps, by = "file_name")
-
-test_data <- data |>
-  semi_join(test_maps, by = "file_name")
-```

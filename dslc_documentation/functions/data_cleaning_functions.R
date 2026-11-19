@@ -534,15 +534,24 @@ clean_data <- function(
     rounds$team_1_points_gap <- rounds$team_1_points - rounds$team_2_points
   }
   
+  # Create map_and_team_1_side variable with dust2_counterterrorist as reference
+  rounds <- rounds |>
+    mutate(
+      map_and_team_1_side = interaction(map_name, team_1_side, sep = "_"),
+      map_and_team_1_side = relevel(map_and_team_1_side, ref = "dust2_counter-terrorist")
+    )
+  
+  
   # Select columns
   rounds <- rounds |>
     select(
       file_id,
       file_name,
       map_name,
+      team_1_side,
+      map_and_team_1_side,
       team_1,
       team_2,
-      team_1_side,
       team_1_points,
       team_2_points,
       team_1_points_gap,
