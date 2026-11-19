@@ -226,7 +226,7 @@ create_player_team_matrix <- function(kills) {
     left_join(player_classification, by = "steamid")
 }
 
-identify_team_1_role <- function(sample_kills) {
+identify_team_1_side <- function(sample_kills) {
   
   # Infer player teams
   player_teams <- create_player_team_matrix(sample_kills) %>%
@@ -299,7 +299,7 @@ identify_team_1_role <- function(sample_kills) {
       by = c("file_id", "file_name")
     ) %>%
     mutate(
-      team_1_role = case_when(
+      team_1_side = case_when(
         is.na(team_1_starting_side) ~ NA_character_,
         round_num <= 12 ~ tolower(team_1_starting_side),
         round_num >= 13 &
@@ -356,7 +356,13 @@ add_previous_round_winner <- function(data) {
     )
 }
 
-clean_data <- function(rounds, kills, rankings) {
+clean_data <- function(
+    rounds, 
+    kills, 
+    rankings,
+    log_scale_equip_gap = FALSE,
+    log_scale_skill_gap = FALSE
+    ) {
   
   # Remove incomplete games
   incomplete_files <- rounds |>
@@ -406,16 +412,16 @@ clean_data <- function(rounds, kills, rankings) {
       team_2 = map_chr(file_name, ~ get_team_names(.x)$team_2_name)
     )
   
-  # Identify Team 1's role using available kill events
-  team_roles <- identify_team_1_role(kills) |>
-    select(file_id, file_name, round_num, team_1_role) |>
+  # Identify Team 1's side using available kill events
+  team_sides <- identify_team_1_side(kills) |>
+    select(file_id, file_name, round_num, team_1_side) |>
     distinct()
   
-  # Join team names and roles onto round data
+  # Join team names and sides onto round data
   rounds <- rounds |>
     left_join(matches, by = c("file_id", "file_name")) |>
     left_join(
-      team_roles,
+      team_sides,
       by = c("file_id", "file_name", "round_num")
     )
   
@@ -440,15 +446,15 @@ clean_data <- function(rounds, kills, rankings) {
   
   
   # If a match has a round that's missing t_equip, ct_equip then remove
-  # If a match has a round that's missing team 1 role, remove
+  # If a match has a round that's missing team 1 side, remove
   bad_matches <- rounds |>
     group_by(file_id, file_name) |>
     summarise(
       na_equip = sum(is.na(equip_gap_ct)),
-      na_team_role = sum(is.na(team_1_role)),
+      na_team_side = sum(is.na(team_1_side)),
       .groups = "drop"
     ) |>
-    filter(na_equip > 0 | na_team_role > 0) |>
+    filter(na_equip > 0 | na_team_side > 0) |>
     select(file_id, file_name)
   
   rounds <- rounds |>
@@ -466,35 +472,35 @@ clean_data <- function(rounds, kills, rankings) {
   rounds <- rounds |>
     mutate(
       team_1_starting_cash = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         ct_starting_cash, t_starting_cash
       ),
       team_2_starting_cash = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         t_starting_cash, ct_starting_cash
       ),
       team_1_carried_equip = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         ct_carried_equip, t_carried_equip
       ),
       team_2_carried_equip = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         t_carried_equip, ct_carried_equip
       ),
       team_1_purchase_cost = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         ct_purchase_cost, t_purchase_cost
       ),
       team_2_purchase_cost = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         t_purchase_cost, ct_purchase_cost
       ),
       team_1_equip = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         ct_equip, t_equip
       ),
       team_2_equip = if_else(
-        team_1_role == "counter-terrorist",
+        team_1_side == "counter-terrorist",
         t_equip, ct_equip
       )
     )
@@ -505,9 +511,9 @@ clean_data <- function(rounds, kills, rankings) {
   
   rounds <- rounds |> 
     mutate(
-      team_1_win = if_else(winner == team_1_role, TRUE, FALSE),
-      team_1_equip_gap = if_else(team_1_role == "counter-terrorist", equip_gap_ct, -equip_gap_ct),
-      team_1_log_diff_equip_gap = if_else(team_1_role == "counter-terrorist", log_diff_equip_gap_ct, -log_diff_equip_gap_ct)
+      team_1_win = if_else(winner == team_1_side, TRUE, FALSE),
+      team_1_equip_gap = if_else(team_1_side == "counter-terrorist", equip_gap_ct, -equip_gap_ct),
+      team_1_log_diff_equip_gap = if_else(team_1_side == "counter-terrorist", log_diff_equip_gap_ct, -log_diff_equip_gap_ct)
     )
   
   
@@ -515,6 +521,46 @@ clean_data <- function(rounds, kills, rankings) {
   # Add whether team 1 won previous round (momentum)
   rounds <- add_previous_round_winner(rounds) |>
     remove_incomplete_round_sequences()
+  
+  # Use diff/log diff
+  
+  if (log_scale_equip_gap) {
+    rounds$team_1_equip_gap <- rounds$team_1_log_diff_equip_gap
+  }
+  
+  if (log_scale_skill_gap) {
+    rounds$team_1_points_gap <- log(rounds$team_1_points / rounds$team_2_points)
+  } else {
+    rounds$team_1_points_gap <- rounds$team_1_points - rounds$team_2_points
+  }
+  
+  # Select columns
+  rounds <- rounds |>
+    select(
+      file_id,
+      file_name,
+      map_name,
+      team_1,
+      team_2,
+      team_1_points,
+      team_2_points,
+      team_1_points_gap,
+      round_num,
+      pistol_round,
+      team_1_win,
+      winner,
+      reason,
+      planted,
+      team_1_starting_cash,
+      team_2_starting_cash,
+      team_1_carried_equip,
+      team_2_carried_equip,
+      team_1_purchase_cost,
+      team_2_purchase_cost,
+      team_1_equip,
+      team_2_equip,
+      team_1_equip_gap
+    )
   
   return(rounds)
 }
@@ -576,12 +622,13 @@ get_historical_team_points <- function(rounds, historical_points) {
   ]
   
   # Return results
-  result %>%
+  result |>
     mutate(
       team_1_points = team_1_points,
       team_2_points = team_2_points
-    ) %>%
+    ) |>
     select(-row_id)
+  
 }
 
 plot_equipment_by_first_winner <- function(sample_rounds, first_winner) {
