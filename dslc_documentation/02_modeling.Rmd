@@ -13,7 +13,8 @@ data <- clean_data(
   sample_kills,
   historical_team_points,
   log_scale_equip_gap = FALSE,
-  log_scale_skill_gap = TRUE
+  log_scale_skill_gap = TRUE,
+  include_pistol = FALSE
   )
 
 set.seed(0318)
@@ -112,6 +113,10 @@ pred_val_sample
 table(pred_val_sample$team_1_win, pred_val_sample$ls_predict_binary)
 table(pred_val_sample$team_1_win, pred_val_sample$lr_predict_binary)
 ```
+
+# Stability Check
+
+
 
 ```{r}
 pred_val_long <- pred_val_sample |> 
