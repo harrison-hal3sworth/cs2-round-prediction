@@ -747,3 +747,46 @@ plot_equipment_by_first_winner <- function(sample_rounds, first_winner) {
   return(g)
 }
 
+
+train_validate_test_split <- function(data, seed = 0318) {
+  set.seed(seed)
+  
+  maps <- data |>
+    distinct(file_name)
+  
+  # 60% train
+  train_size <- round(nrow(maps) * 0.6)
+  
+  train_maps <- maps |>
+    slice_sample(n = train_size)
+  
+  maps <- maps |>
+    anti_join(train_maps, by = "file_name")
+  
+  # 20% validate
+  validate_size <- round(nrow(maps) * 0.5)
+  
+  validate_maps <- maps |>
+    slice_sample(n = validate_size)
+  
+  # 20% test
+  test_maps <- maps |>
+    anti_join(validate_maps, by = "file_name")
+  
+  train_data <- data |>
+    semi_join(train_maps, by = "file_name")
+  
+  validate_data <- data |>
+    semi_join(validate_maps, by = "file_name")
+  
+  test_data <- data |>
+    semi_join(test_maps, by = "file_name")
+  
+  return(
+    list(
+      train_data = train_data,
+      validate_data = validate_data,
+      test_data = test_data
+    )
+  )
+}
