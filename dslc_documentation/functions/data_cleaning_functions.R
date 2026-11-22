@@ -361,7 +361,8 @@ clean_data <- function(
     kills, 
     rankings,
     log_scale_equip_gap = FALSE,
-    log_scale_skill_gap = FALSE
+    log_scale_skill_gap = FALSE,
+    include_pistol = TRUE
     ) {
   
   # Remove incomplete games
@@ -540,6 +541,12 @@ clean_data <- function(
       map_and_team_1_side = interaction(map_name, team_1_side, sep = "_"),
       map_and_team_1_side = relevel(map_and_team_1_side, ref = "dust2_counter-terrorist")
     )
+  
+  # Remove pistol rounds
+  if (!include_pistol) {
+    rounds <- rounds |>
+      filter(pistol_round == FALSE)
+  }
   
   
   # Select columns
