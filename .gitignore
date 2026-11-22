@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /.vs
 .Rproj.user
 cs2-round-prediction.Rproj
@@ -5,3 +6,13 @@ cs2-round-prediction.Rproj
 /data/old_data
 /data/sample_kills_110800-112973.csv
 /data/sample_rounds_110800-112973.csv
+=======
+.venv/
+*.dem
+*.rar
+*.zip
+rawdemos/
+sample_*.csv
+cs2-round-prediction.Rproj
+.Rproj.user
+>>>>>>> origin/main
