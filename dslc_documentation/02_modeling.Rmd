@@ -1,0 +1,207 @@
+---
+title: "02_modeling"
+output: html_document
+---
+
+## 1.1 Training and Testing Sets
+
+We split the data by map rather than by individual round. This prevents rounds from the same map from appearing in both the training and testing sets.
+
+```{r train-test-split}
+data <- clean_data(
+  sample_rounds,
+  sample_kills,
+  historical_team_points,
+  log_scale_equip_gap = FALSE,
+  log_scale_skill_gap = TRUE
+  )
+
+set.seed(0318)
+
+maps <- data |>
+  distinct(file_name)
+
+train_size <- round(nrow(maps) * 0.6)
+
+train_maps <- maps |>
+  slice_sample(n = train_size)
+
+test_maps <- maps |>
+  anti_join(train_maps, by = "file_name")
+
+train_data <- data |>
+  semi_join(train_maps, by = "file_name")
+
+test_data <- data |>
+  semi_join(test_maps, by = "file_name")
+
+
+```
+
+```{r}
+ls <- lm(team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap, data = train_data)
+lr <- glm(team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap, data = train_data, family = "binomial")
+```
+
+```{r}
+rf <- ranger(team_1_win ~ map_name + team_1_side + team_1_equip_gap + team_1_points_gap, data = train_data)
+```
+
+```{r}
+lr_formula <- team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap
+
+set.seed(27398)
+boot_coefs <- map_df(1:100, function(i) {
+  print(i)
+  rounds_boot <- train_data |>
+    sample_frac(1, replace = TRUE)
+  lr_all_boot <- glm(lr_formula,
+                     rounds_boot,
+                     family = "binomial")
+  return(enframe(lr_all_boot$coefficients,
+                 name = "variable",
+                 value = "coefficient"))
+}, .id = "boot")
+
+coefs_std <- boot_coefs |>
+  group_by(variable) |>
+  summarise(boot_sd = sd(coefficient)) |>
+  ungroup() |>
+  left_join(enframe(lr$coefficients,
+                    name = "variable",
+                    value = "coefficient") |>
+                      mutate(theory_sd = summary(lr)$coef[,2]),
+            by = "variable") |>
+  mutate(standardized_coefficient = coefficient / boot_sd) |>
+  arrange(desc(abs(standardized_coefficient))) |>
+  filter(variable != "(Intercept)") |>
+  select(variable, coefficient, boot_sd, theory_sd, standardized_coefficient)
+print(coefs_std, width = Inf)
+```
+
+```{r}
+pred_val_sample <- test_data |>
+  transmute(team_1_win = team_1_win,
+            ls_predict = predict(ls, test_data),
+            ls_confidence = 2 * abs(ls_predict - 0.5),
+            
+            ls_predict_binary = if_else(ls_predict > 0.5, TRUE, FALSE),
+            ls_correct = if_else(team_1_win == ls_predict_binary, TRUE, FALSE),
+            lr_predict = predict(lr, test_data, type = "response"),
+            lr_confidence = 2 * abs(lr_predict - 0.5),
+            lr_predict_binary = if_else(lr_predict > 0.5, TRUE, FALSE),
+            lr_correct = if_else(team_1_win == lr_predict_binary, TRUE, FALSE))
+
+pred_val_sample
+
+table(pred_val_sample$team_1_win, pred_val_sample$ls_predict_binary)
+table(pred_val_sample$team_1_win, pred_val_sample$lr_predict_binary)
+```
+
+```{r}
+pred_val_long <- pred_val_sample |> 
+  pivot_longer(
+    cols = matches("^(ls|lr)_"),
+    names_to = c("method", ".value"),
+    names_pattern = "^(ls|lr)_(.*)$"
+  )
+
+pred_val_long |> ggplot(aes(x = confidence)) +
+  geom_histogram(aes(fill = correct), alpha = 0.5) +
+  facet_wrap(~ method)
+```
+
+```{r}
+pred_val_long |> ggplot(aes(x = predict)) +
+  geom_histogram(aes(fill = team_1_win), alpha = 0.5) +
+  facet_wrap(~ method)
+```
+
+```{r}
+pred_val_sample |> select(team_1_win, ls_predict, lr_predict) |>
+  mutate(team_1_win = factor(team_1_win, levels = c(TRUE, FALSE))) |>
+  pivot_longer(c("ls_predict", "lr_predict"), names_to = "fit", values_to = "pred") |>
+  group_by(fit) |> roc_curve(team_1_win, pred) |> autoplot()
+```
+
+```{r}
+pred_val_sample |>
+  select(team_1_win, ls_predict, lr_predict) |>
+  mutate(team_1_win = factor(team_1_win, levels = c(TRUE, FALSE))) |>
+  pivot_longer(c("ls_predict", "lr_predict"),
+               names_to = "fit", values_to = "pred") |>
+  group_by(fit) |>
+  summarise(auc = roc_auc_vec(truth = team_1_win, estimate = pred))
+```
+
+```{r}
+test_data_no_pistol <- test_data |> filter(!pistol_round)
+
+(pred_val <- tibble(
+  team_1_win = test_data_no_pistol$team_1_win,
+  ls_predict = predict(ls, test_data_no_pistol),
+  lr_predict = predict(lr, test_data_no_pistol, type = "response")
+))
+
+pred_val |>
+  mutate(team_1_win = factor(as.numeric(team_1_win), levels = c(0, 1))) |>
+  pivot_longer(
+    c(ls_predict, lr_predict),
+    names_to = "fit",
+    values_to = "pred"
+  ) |>
+  mutate(
+    pred_binary = factor(as.numeric(pred > 0.5), levels = c(0, 1))
+  ) |>
+  group_by(fit) |>
+  summarise(
+    accuracy = accuracy_vec(team_1_win, pred_binary),
+    tp_rate = sens_vec(team_1_win, pred_binary, event_level = "second"),
+    tn_rate = spec_vec(team_1_win, pred_binary, event_level = "second"),
+    auc = roc_auc_vec(team_1_win, pred, event_level = "second")
+  )
+```
+
+```{r}
+calibration_results <- test_data |>
+  mutate(
+    predicted = predict(lr, newdata = test_data, type = "response"),
+    actual = as.numeric(team_1_win),
+    probability_group = ntile(predicted, 1000)
+  ) |>
+  group_by(probability_group) |>
+  summarise(
+    N = n(),
+    predicted_probability = mean(predicted),
+    observed_probability = mean(actual),
+    lower = binom.test(sum(actual), n())$conf.int[1],
+    upper = binom.test(sum(actual), n())$conf.int[2],
+    .groups = "drop"
+  )
+
+calibration_results
+
+ggplot(
+  calibration_results,
+  aes(x = predicted_probability, y = observed_probability)
+) +
+  geom_errorbar(
+    aes(ymin = lower, ymax = upper),
+    width = 0.01
+  ) +
+  geom_point(size = 3) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = "dashed"
+  ) +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Model Calibration",
+    x = "Predicted Win Probability",
+    y = "Observed Win Probability"
+  ) +
+  theme_minimal()
+```
