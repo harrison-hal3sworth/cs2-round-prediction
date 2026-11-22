@@ -1,3 +1,7 @@
+library(tidyverse)
+library(scales)
+library(yardstick)
+
 train_logit_model <- function(formula, train_data) {
   model <- glm(
     formula,
@@ -15,7 +19,7 @@ model_prediction_accuracy <- function(model, data) {
     model,
     newdata = data,
     type = "response"
-  )
+  )$predictions
   
   data$model_predicted_team_1_win <- ifelse(
     data$model_prob_team_1_win >= 0.5,
@@ -37,10 +41,56 @@ test_logit_model <- function(formula, train_data, test_data) {
   return(list(model = model, test_accuracy = test_accuracy))
 }
 
-test_logit_model(
-  team_1_win ~ 
-    map_name:team_1_role +
-    team_1_log_diff_equip_gap +
-    I(log(team_1_points / team_2_points)), 
-  train_data, 
-  test_data)
+
+required_equip_gap <- function(
+    model,
+    map_name,
+    team_1_side,
+    team_1_points_gap,
+    equip_range = seq(-100000, 100000, by = 10)
+) {
+  
+  # Create prediction data
+  new_data <- data.frame(
+    map_and_team_1_side = paste0(map_name, "_", team_1_side),
+    team_1_equip_gap = equip_range,
+    team_1_points_gap = team_1_points_gap
+  )
+  
+  # Predict win probabilities
+  new_data$win_probability <- predict(
+    model,
+    newdata = new_data,
+    type = "response"
+  )
+  
+  # Plot
+  ggplot(new_data, aes(
+    x = team_1_equip_gap,
+    y = win_probability
+  )) +
+    geom_line(linewidth = 1) +
+    geom_hline(
+      yintercept = 0.60,
+      linetype = "dashed",
+      color = "red"
+    ) +
+    scale_y_continuous(
+      labels = scales::percent,
+      limits = c(0, 1)
+    ) +
+    labs(
+      title = "Round Win Probability by Equipment Advantage",
+      subtitle = paste(
+        map_name,
+        team_1_side,
+        "| Skill difference:", team_1_points_gap
+      ),
+      x = "Team 1 Equipment Advantage (log scale)",
+      y = "Predicted Probability of Winning"
+    ) +
+    theme_minimal()
+}
+
+
+
