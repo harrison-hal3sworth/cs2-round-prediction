@@ -51,16 +51,31 @@ rf <- ranger(team_1_win ~ map_name + team_1_side + team_1_equip_gap + team_1_poi
 lr_formula <- team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap
 
 set.seed(27398)
+
+# Bootstrap by sampling maps, not individual rounds
 boot_coefs <- map_df(1:100, function(i) {
   print(i)
+
   rounds_boot <- train_data |>
-    sample_frac(1, replace = TRUE)
-  lr_all_boot <- glm(lr_formula,
-                     rounds_boot,
-                     family = "binomial")
-  return(enframe(lr_all_boot$coefficients,
-                 name = "variable",
-                 value = "coefficient"))
+    group_by(file_name) |>
+    group_split() |>
+    sample(
+      size = n_distinct(train_data$file_name),
+      replace = TRUE
+    ) |>
+    bind_rows()
+
+  lr_all_boot <- glm(
+    lr_formula,
+    data = rounds_boot,
+    family = "binomial"
+  )
+
+  enframe(
+    lr_all_boot$coefficients,
+    name = "variable",
+    value = "coefficient"
+  )
 }, .id = "boot")
 
 coefs_std <- boot_coefs |>
