@@ -8,33 +8,18 @@ output: html_document
 We split the data by map rather than by individual round. This prevents rounds from the same map from appearing in both the training and testing sets.
 
 ```{r train-test-split}
-data <- clean_data(
-  sample_rounds,
-  sample_kills,
-  historical_team_points,
-  log_scale_equip_gap = FALSE,
-  log_scale_skill_gap = TRUE,
-  include_pistol = FALSE
-  )
+data <- clean_data(sample_rounds,
+                   sample_kills,
+                   historical_team_points,
+                   log_scale_equip_gap = FALSE,
+                   log_scale_skill_gap = TRUE,
+                   include_pistol = FALSE
+                   ) |>
+  train_validate_test_split(seed = 0318)
 
-set.seed(0318)
-
-maps <- data |>
-  distinct(file_name)
-
-train_size <- round(nrow(maps) * 0.6)
-
-train_maps <- maps |>
-  slice_sample(n = train_size)
-
-test_maps <- maps |>
-  anti_join(train_maps, by = "file_name")
-
-train_data <- data |>
-  semi_join(train_maps, by = "file_name")
-
-test_data <- data |>
-  semi_join(test_maps, by = "file_name")
+train_data <- data$train_data
+validate_data <- data$validate_data
+test_data <- data$train_data
 
 
 ```
@@ -96,14 +81,14 @@ print(coefs_std, width = Inf)
 ```
 
 ```{r}
-pred_val_sample <- test_data |>
+pred_val_sample <- validate_data |>
   transmute(team_1_win = team_1_win,
-            ls_predict = predict(ls, test_data),
+            ls_predict = predict(ls, validate_data),
             ls_confidence = 2 * abs(ls_predict - 0.5),
             
             ls_predict_binary = if_else(ls_predict > 0.5, TRUE, FALSE),
             ls_correct = if_else(team_1_win == ls_predict_binary, TRUE, FALSE),
-            lr_predict = predict(lr, test_data, type = "response"),
+            lr_predict = predict(lr, validate_data, type = "response"),
             lr_confidence = 2 * abs(lr_predict - 0.5),
             lr_predict_binary = if_else(lr_predict > 0.5, TRUE, FALSE),
             lr_correct = if_else(team_1_win == lr_predict_binary, TRUE, FALSE))
@@ -114,7 +99,6 @@ table(pred_val_sample$team_1_win, pred_val_sample$ls_predict_binary)
 table(pred_val_sample$team_1_win, pred_val_sample$lr_predict_binary)
 ```
 
-# Stability Check
 
 
 
@@ -155,37 +139,9 @@ pred_val_sample |>
 ```
 
 ```{r}
-test_data_no_pistol <- test_data |> filter(!pistol_round)
-
-(pred_val <- tibble(
-  team_1_win = test_data_no_pistol$team_1_win,
-  ls_predict = predict(ls, test_data_no_pistol),
-  lr_predict = predict(lr, test_data_no_pistol, type = "response")
-))
-
-pred_val |>
-  mutate(team_1_win = factor(as.numeric(team_1_win), levels = c(0, 1))) |>
-  pivot_longer(
-    c(ls_predict, lr_predict),
-    names_to = "fit",
-    values_to = "pred"
-  ) |>
+calibration_results <- validate_data |>
   mutate(
-    pred_binary = factor(as.numeric(pred > 0.5), levels = c(0, 1))
-  ) |>
-  group_by(fit) |>
-  summarise(
-    accuracy = accuracy_vec(team_1_win, pred_binary),
-    tp_rate = sens_vec(team_1_win, pred_binary, event_level = "second"),
-    tn_rate = spec_vec(team_1_win, pred_binary, event_level = "second"),
-    auc = roc_auc_vec(team_1_win, pred, event_level = "second")
-  )
-```
-
-```{r}
-calibration_results <- test_data |>
-  mutate(
-    predicted = predict(lr, newdata = test_data, type = "response"),
+    predicted = predict(lr, newdata = validate_data, type = "response"),
     actual = as.numeric(team_1_win),
     probability_group = ntile(predicted, 1000)
   ) |>
@@ -207,9 +163,10 @@ ggplot(
 ) +
   geom_errorbar(
     aes(ymin = lower, ymax = upper),
-    width = 0.01
+    width = 0.01,
+    alpha = 0.2
   ) +
-  geom_point(size = 3) +
+  geom_point(size = 1) +
   geom_abline(
     slope = 1,
     intercept = 0,
@@ -224,4 +181,30 @@ ggplot(
     y = "Observed Win Probability"
   ) +
   theme_minimal()
+```
+
+# Stability Check
+```{r}
+data_options <- expand_grid(
+  log_scale_equip_gap = c(FALSE, TRUE),
+  log_scale_skill_gap = c(FALSE, TRUE),
+  include_pistol = c(FALSE, TRUE)
+)
+
+data_options <- as_tibble(data_options)
+
+data_options <- data_options |>
+  mutate(
+    data = map(1:n(), \(i) {
+      clean_data(
+        sample_rounds,
+        sample_kills,
+        historical_team_points,
+        log_scale_equip_gap[i],
+        log_scale_skill_gap[i],
+        include_pistol[i]
+      )
+    })
+  ) |>
+  rowwise()
 ```
