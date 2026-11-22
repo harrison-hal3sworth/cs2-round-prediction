@@ -3,6 +3,16 @@ title: "02_modeling"
 output: html_document
 ---
 
+```{r setup, include = FALSE, error = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+source("functions/data_cleaning_functions.R")
+source("functions/logit_models.R")
+library(ranger)
+```
+
+
 ## 1.1 Training and Testing Sets
 
 We split the data by map rather than by individual round. This prevents rounds from the same map from appearing in both the training and testing sets.
@@ -20,18 +30,14 @@ data <- clean_data(sample_rounds,
 train_data <- data$train_data
 validate_data <- data$validate_data
 test_data <- data$train_data
-
-
 ```
 
-```{r}
+```{r models}
 ls <- lm(team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap, data = train_data)
 lr <- glm(team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap, data = train_data, family = "binomial")
-```
-
-```{r}
 rf <- ranger(team_1_win ~ map_name + team_1_side + team_1_equip_gap + team_1_points_gap, data = train_data)
 ```
+
 
 ```{r}
 lr_formula <- team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap
@@ -91,12 +97,16 @@ pred_val_sample <- validate_data |>
             lr_predict = predict(lr, validate_data, type = "response"),
             lr_confidence = 2 * abs(lr_predict - 0.5),
             lr_predict_binary = if_else(lr_predict > 0.5, TRUE, FALSE),
-            lr_correct = if_else(team_1_win == lr_predict_binary, TRUE, FALSE))
+            lr_correct = if_else(team_1_win == lr_predict_binary, TRUE, FALSE),
+            rf_predict_binary = predict(rf, validate_data)$predictions,
+            rf_correct = if_else(team_1_win == rf_predict_binary, TRUE, FALSE)
+            )
 
 pred_val_sample
 
 table(pred_val_sample$team_1_win, pred_val_sample$ls_predict_binary)
 table(pred_val_sample$team_1_win, pred_val_sample$lr_predict_binary)
+table(pred_val_sample$team_1_win, pred_val_sample$rf_predict_binary)
 ```
 
 
@@ -189,22 +199,104 @@ data_options <- expand_grid(
   log_scale_equip_gap = c(FALSE, TRUE),
   log_scale_skill_gap = c(FALSE, TRUE),
   include_pistol = c(FALSE, TRUE)
-)
-
-data_options <- as_tibble(data_options)
+) |>
+  mutate(
+    data = pmap(
+      list(
+        log_scale_equip_gap,
+        log_scale_skill_gap,
+        include_pistol
+      ),
+      \(equip, skill, pistol) {
+        clean_data(
+          sample_rounds,
+          sample_kills,
+          historical_team_points,
+          equip,
+          skill,
+          pistol
+        )
+      }
+    )
+  )
 
 data_options <- data_options |>
   mutate(
-    data = map(1:n(), \(i) {
-      clean_data(
-        sample_rounds,
-        sample_kills,
-        historical_team_points,
-        log_scale_equip_gap[i],
-        log_scale_skill_gap[i],
-        include_pistol[i]
-      )
-    })
+    split = map(data, train_validate_test_split)
   ) |>
-  rowwise()
+  mutate(
+    train_data = map(split, "train_data"),
+    validate_data = map(split, "validate_data"),
+    test_data = map(split, "test_data")
+  )
+
+data_options <- data_options |>
+  mutate(
+    results = pmap(
+      list(train_data, validate_data, test_data),
+      \(train_data, validate_data, test_data) {
+
+        train_data <- train_data |>
+          drop_na(team_1_win)
+
+        test_data <- test_data |>
+          drop_na(team_1_win)
+
+        # Linear regression
+        ls <- lm(
+          team_1_win ~ map_and_team_1_side +
+            team_1_equip_gap +
+            team_1_points_gap,
+          data = train_data
+        )
+
+        # Logistic regression
+        lr <- glm(
+          team_1_win ~ map_and_team_1_side +
+            team_1_equip_gap +
+            team_1_points_gap,
+          data = train_data,
+          family = binomial()
+        )
+
+        # Random forest
+        rf <- ranger(
+          team_1_win ~ map_name +
+            team_1_side +
+            team_1_equip_gap +
+            team_1_points_gap,
+          data = train_data |>
+            mutate(team_1_win = factor(
+              team_1_win,
+              levels = c(FALSE, TRUE)
+            )),
+          probability = TRUE,
+          num.trees = 500,
+          seed = 0318
+        )
+
+        # Predictions
+        predictions <- tibble(
+          actual = as.integer(test_data$team_1_win),
+          ls = predict(ls, newdata = test_data),
+          lr = predict(lr, newdata = test_data, type = "response"),
+          rf = predict(rf, data = test_data)$predictions[, "TRUE"]
+        ) |>
+          pivot_longer(
+            cols = c(ls, lr, rf),
+            names_to = "method",
+            values_to = "pred"
+          ) |>
+          mutate(
+            pred_binary = as.integer(pred >= 0.5),
+            pred_correct = pred_binary == actual
+          )
+
+        list(
+          models = list(ls = ls, lr = lr, rf = rf),
+          predictions = predictions
+        )
+      }
+    )
+  )
 ```
