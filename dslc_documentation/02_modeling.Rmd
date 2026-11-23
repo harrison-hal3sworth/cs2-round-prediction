@@ -10,6 +10,12 @@ knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 source("functions/data_cleaning_functions.R")
 source("functions/logit_models.R")
 library(ranger)
+library(pROC)
+```
+```{r read-data}
+sample_kills <- read.csv("./data/sample_kills_110800-112973.csv")
+sample_rounds <- read.csv("./data/sample_rounds_110800-112973.csv")
+historical_team_points <- read.csv("hltv_historical_rankings.csv")
 ```
 
 
@@ -292,11 +298,57 @@ data_options <- data_options |>
             pred_correct = pred_binary == actual
           )
 
-        list(
-          models = list(ls = ls, lr = lr, rf = rf),
-          predictions = predictions
-        )
+        # Overall metrics
+        predictions |>
+          group_by(method) |>
+            summarise(
+              accuracy = mean(pred_correct) * 100,
+              tp_rate = sum(pred_binary == 1 & actual == 1) /
+                sum(actual == 1) * 100,
+              tn_rate = sum(pred_binary == 0 & actual == 0) /
+                sum(actual == 0) * 100,
+              auc = as.numeric(pROC::auc(actual, pred)),
+              .groups = "drop"
+            )
       }
     )
-  )
+  ) |>
+  select(-train_data, -validate_data, -test_data) |>
+  unnest(results)
+  
+```
+
+```{r}
+data_options_longer <- data_options |>
+  pivot_longer(
+    cols = c(accuracy, tp_rate, tn_rate, auc),
+    names_to = "metric",
+    values_to = "value")
+    
+data_options_longer |>
+  ggplot(aes(x = value, y = log_scale_equip_gap, fill = log_scale_equip_gap)) +
+  geom_boxplot() +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Using Log Scale Equipment Gap") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+data_options_longer |>
+  ggplot(aes(x = value, y = log_scale_skill_gap, fill = log_scale_skill_gap)) +
+  geom_boxplot() +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Using Log Scale Skill Points Gap") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+data_options_longer |>
+  ggplot(aes(x = value, y = include_pistol, fill = include_pistol)) +
+  geom_boxplot() +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Including Pistol Rounds in Data") +
+  theme_minimal() +
+  theme(legend.position = "none")
 ```
