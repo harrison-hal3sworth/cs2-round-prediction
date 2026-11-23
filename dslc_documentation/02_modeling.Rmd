@@ -12,6 +12,7 @@ source("functions/logit_models.R")
 library(ranger)
 library(pROC)
 ```
+
 ```{r read-data}
 sample_kills <- read.csv("./data/sample_kills_110800-112973.csv")
 sample_rounds <- read.csv("./data/sample_rounds_110800-112973.csv")
@@ -307,7 +308,7 @@ data_options <- data_options |>
                 sum(actual == 1) * 100,
               tn_rate = sum(pred_binary == 0 & actual == 0) /
                 sum(actual == 0) * 100,
-              auc = as.numeric(pROC::auc(actual, pred)),
+              auc = as.numeric(pROC::auc(actual, pred)) * 100,
               .groups = "drop"
             )
       }
@@ -325,6 +326,15 @@ data_options_longer <- data_options |>
     names_to = "metric",
     values_to = "value")
     
+data_options_longer |>
+  ggplot(aes(x = value, y = method, fill = method)) +
+  geom_boxplot() +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Using Different Classification Methods") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
 data_options_longer |>
   ggplot(aes(x = value, y = log_scale_equip_gap, fill = log_scale_equip_gap)) +
   geom_boxplot() +
@@ -351,4 +361,17 @@ data_options_longer |>
   labs(title = "Metrics for Including Pistol Rounds in Data") +
   theme_minimal() +
   theme(legend.position = "none")
+```
+
+```{r}
+data_options_longer |> 
+    group_by(metric) |> 
+    summarise(index = which.max(value),
+              method = method[index],
+              log_scale_equip_gap = log_scale_equip_gap[index],
+              log_scale_skill_gap = log_scale_skill_gap[index],
+              include_pistol = include_pistol[index],
+              max.value = max(value)
+              ) |>
+    select(-index)
 ```
