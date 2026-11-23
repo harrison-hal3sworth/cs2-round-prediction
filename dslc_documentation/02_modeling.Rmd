@@ -36,7 +36,7 @@ data <- clean_data(sample_rounds,
 
 train_data <- data$train_data
 validate_data <- data$validate_data
-test_data <- data$train_data
+test_data <- data$test_data
 ```
 
 ```{r models}
