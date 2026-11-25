@@ -362,7 +362,9 @@ clean_data <- function(
     rankings,
     log_scale_equip_gap = FALSE,
     log_scale_skill_gap = FALSE,
-    include_pistol = TRUE
+    include_pistol = TRUE,
+    split = TRUE,
+    seed = 0318
     ) {
   
   # Remove incomplete games
@@ -371,12 +373,10 @@ clean_data <- function(
     pull(file_name) |>
     unique()
   
-  # Remove 1win-vs-b8-m1-dust2.dem, bad data file
-  rounds <- rounds |> filter(file_name != "1win-vs-b8-m1-dust2.dem")
-  kills <- kills |> filter(file_name != "1win-vs-b8-m1-dust2.dem")
+  # If a round number appears more than once in a particular file, remove
+  bad_rounds <- rounds |> count(file_name, round_num, file_id) |> filter(n == 2)
   
-  rounds <- rounds |> filter(file_name != "aurora-vs-vitality-m2-inferno.dem")
-  kills <- kills |> filter(file_name != "aurora-vs-vitality-m2-inferno.dem")
+  rounds <- rounds |> anti_join(bad_rounds, by = c("file_name", "file_id"))
   
   rounds <- rounds |>
     filter(!str_starts(file_name, "incomplete.dem"))
@@ -548,14 +548,7 @@ clean_data <- function(
       map_and_team_1_side = interaction(map_name, team_1_side, sep = "_"),
       map_and_team_1_side = relevel(map_and_team_1_side, ref = "dust2_counter-terrorist")
     )
-  
-  # Remove pistol rounds
-  if (!include_pistol) {
-    rounds <- rounds |>
-      filter(pistol_round == FALSE)
-  }
-  
-  
+
   # Select columns
   rounds <- rounds |>
     select(
@@ -586,6 +579,29 @@ clean_data <- function(
       team_2_equip,
       team_1_equip_gap
     )
+  
+  
+  # Split the data
+  
+  if (split) {
+    rounds <- train_validate_test_split(data = rounds, seed = seed)
+    
+    # Remove pistol rounds from training only
+    if (!include_pistol) {
+      rounds$train_data <- rounds$train_data |>
+        filter(pistol_round == FALSE)
+    }
+    
+    return(rounds)
+  }
+  
+  if (!include_pistol) {
+    rounds <- rounds |>
+      filter(pistol_round == FALSE)
+  }
+  
+  
+
   
   return(rounds)
 }
