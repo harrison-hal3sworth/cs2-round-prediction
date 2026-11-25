@@ -600,7 +600,36 @@ clean_data <- function(
       filter(pistol_round == FALSE)
   }
   
-  
+  # Select columns
+  rounds <- rounds |>
+    select(
+      file_id,
+      file_name,
+      map_name,
+      team_1_side,
+      map_and_team_1_side,
+      team_1,
+      team_2,
+      team_1_points,
+      team_2_points,
+      team_1_points_gap,
+      round_num,
+      pistol_round,
+      team_1_win,
+      team_1_won_previous,
+      winner,
+      reason,
+      planted,
+      team_1_starting_cash,
+      team_2_starting_cash,
+      team_1_carried_equip,
+      team_2_carried_equip,
+      team_1_purchase_cost,
+      team_2_purchase_cost,
+      team_1_equip,
+      team_2_equip,
+      team_1_equip_gap
+    ) 
 
   
   return(rounds)
