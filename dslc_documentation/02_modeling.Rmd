@@ -30,9 +30,10 @@ data <- clean_data(sample_rounds,
                    historical_team_points,
                    log_scale_equip_gap = FALSE,
                    log_scale_skill_gap = TRUE,
-                   include_pistol = FALSE
-                   ) |>
-  train_validate_test_split(seed = 0318)
+                   include_pistol = FALSE,
+                   split = TRUE,
+                   seed = 0318
+                   )
 
 train_data <- data$train_data
 validate_data <- data$validate_data
@@ -224,26 +225,26 @@ data_options <- expand_grid(
           pistol
         )
       }
-    )
+    ),
+    train_data = map(data, "train_data"),
+    validate_data = map(data, "validate_data"),
+    test_data = map(data, "test_data")
   )
 
 data_options <- data_options |>
   mutate(
-    split = map(data, train_validate_test_split)
-  ) |>
-  mutate(
-    train_data = map(split, "train_data"),
-    validate_data = map(split, "validate_data"),
-    test_data = map(split, "test_data")
-  )
-
-data_options <- data_options |>
-  mutate(
-    results = pmap(
-      list(train_data, validate_data, test_data),
+    results = purrr::pmap(
+      list(
+        train_data = data_options[["train_data"]],
+        validate_data = data_options[["validate_data"]],
+        test_data = data_options[["test_data"]]
+      ),
       \(train_data, validate_data, test_data) {
 
         train_data <- train_data |>
+          drop_na(team_1_win)
+
+        validate_data <- validate_data |>
           drop_na(team_1_win)
 
         test_data <- test_data |>
@@ -282,12 +283,34 @@ data_options <- data_options |>
           seed = 0318
         )
 
-        # Predictions
-        predictions <- tibble(
+        # Validation predictions
+        validate_predictions <- tibble(
+          file_name = validate_data$file_name,
+          file_id = validate_data$file_id,
+          round_num = validate_data$round_num,
+          actual = as.integer(validate_data$team_1_win),
+          ls = predict(ls, newdata = validate_data),
+          lr = predict(lr, newdata = validate_data, type = "response"),
+          rf = predict(rf, data = validate_data)$predictions[, "TRUE"],
+          set = "validate"
+        )
+
+        # Test predictions
+        test_predictions <- tibble(
+          file_name = test_data$file_name,
+          file_id = test_data$file_id,
+          round_num = test_data$round_num,
           actual = as.integer(test_data$team_1_win),
           ls = predict(ls, newdata = test_data),
           lr = predict(lr, newdata = test_data, type = "response"),
-          rf = predict(rf, data = test_data)$predictions[, "TRUE"]
+          rf = predict(rf, data = test_data)$predictions[, "TRUE"],
+          set = "test"
+        )
+
+        # Combine predictions
+        predictions <- bind_rows(
+          validate_predictions,
+          test_predictions
         ) |>
           pivot_longer(
             cols = c(ls, lr, rf),
@@ -299,24 +322,43 @@ data_options <- data_options |>
             pred_correct = pred_binary == actual
           )
 
-        # Overall metrics
-        predictions |>
+        # Overall test metrics
+        metrics <- predictions |>
+          filter(set == "test") |>
           group_by(method) |>
-            summarise(
-              accuracy = mean(pred_correct) * 100,
-              tp_rate = sum(pred_binary == 1 & actual == 1) /
-                sum(actual == 1) * 100,
-              tn_rate = sum(pred_binary == 0 & actual == 0) /
-                sum(actual == 0) * 100,
-              auc = as.numeric(pROC::auc(actual, pred)) * 100,
-              .groups = "drop"
-            )
+          summarise(
+            accuracy = mean(pred_correct) * 100,
+            tp_rate = sum(pred_binary == 1 & actual == 1) /
+              sum(actual == 1) * 100,
+            tn_rate = sum(pred_binary == 0 & actual == 0) /
+              sum(actual == 0) * 100,
+            auc = as.numeric(pROC::auc(actual, pred)) * 100,
+            .groups = "drop"
+          )
+
+        list(
+          metrics = metrics,
+          predictions = predictions
+        )
       }
     )
+  ) 
+
+data_options_predictions <- data_options |>
+  transmute(
+    log_scale_equip_gap,
+    log_scale_skill_gap,
+    include_pistol,
+    predictions = map(results, "predictions")
+  ) |>
+  unnest(predictions)
+
+data_options <- data_options |>
+  mutate(
+    results = map(results, "metrics")
   ) |>
   select(-train_data, -validate_data, -test_data) |>
   unnest(results)
-  
 ```
 
 ```{r}
@@ -374,4 +416,188 @@ data_options_longer |>
               max.value = max(value)
               ) |>
     select(-index)
+
+data_options_longer |> 
+  filter(method == "lr", 
+         log_scale_equip_gap == TRUE, 
+         log_scale_skill_gap == TRUE, 
+         include_pistol == TRUE)
+```
+
+```{r}
+data_options_predictions <- data_options_predictions |>
+  mutate(
+    config = paste0(
+      "E", as.integer(log_scale_equip_gap),
+      "_S", as.integer(log_scale_skill_gap),
+      "_P", as.integer(include_pistol)
+    ),
+    model = paste(method, config, sep = "_")
+  )
+
+# Validation predictions
+ensemble_validation <- data_options_predictions |>
+  filter(set == "validate") |>
+  pivot_wider(
+    id_cols = c(file_name, file_id, round_num, actual),
+    names_from = model,
+    values_from = pred
+  ) |>
+  drop_na()
+
+# Test predictions
+ensemble_test <- data_options_predictions |>
+  filter(set == "test") |>
+  pivot_wider(
+    id_cols = c(file_name, file_id, round_num, actual),
+    names_from = model,
+    values_from = pred
+  ) |>
+  drop_na()
+
+# Model names
+model_names <- sort(unique(data_options_predictions$model))
+
+# Validation data
+x_validate <- data.matrix(
+  ensemble_validation |> select(all_of(model_names))
+)
+
+y_validate <- ensemble_validation$actual
+
+# Optimize ensemble weights
+library(CVXR)
+
+weights <- Variable(length(model_names))
+
+objective <- Minimize(
+  sum_squares(x_validate %*% weights - y_validate) /
+    nrow(x_validate)
+)
+
+constraints <- list(
+  weights >= 0,
+  sum(weights) == 1
+)
+
+problem <- Problem(objective, constraints)
+solution <- solve(problem)
+
+fitted_weights <- as.numeric(CVXR::value(weights))
+
+# Save weights
+ensemble_weights <- tibble(
+  model = model_names,
+  weight = fitted_weights
+)
+
+# Test predictions
+x_test <- data.matrix(
+  ensemble_test |> select(all_of(model_names))
+)
+
+ensemble_predictions <- ensemble_test |>
+  transmute(
+    file_name,
+    file_id,
+    round_num,
+    actual,
+    pred = as.vector(x_test %*% fitted_weights),
+    pred_binary = as.integer(pred >= 0.5),
+    pred_correct = pred_binary == actual
+  )
+```
+
+```{r}
+ensemble_metrics <- ensemble_predictions |>
+  summarise(
+    accuracy = mean(pred_correct) * 100,
+    tp_rate = sum(pred_binary == 1 & actual == 1) /
+      sum(actual == 1) * 100,
+    tn_rate = sum(pred_binary == 0 & actual == 0) /
+      sum(actual == 0) * 100,
+    auc = as.numeric(pROC::auc(actual, pred)) * 100
+  )
+
+ensemble_metrics
+
+ensemble_longer <- ensemble_metrics |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "metric",
+    values_to = "value"
+  ) |>
+  mutate(group = "Ensemble")
+```
+
+```{r}
+data_options_longer |>
+  mutate(group = method) |>
+  ggplot(aes(x = value, y = group, fill = group)) +
+  geom_boxplot() +
+  geom_point(
+    data = ensemble_longer,
+    aes(x = value, y = group),
+    inherit.aes = FALSE,
+    shape = 8,
+    size = 4
+  ) +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Different Classification Methods") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+data_options_longer |>
+  mutate(group = as.character(log_scale_equip_gap)) |>
+  ggplot(aes(x = value, y = group, fill = group)) +
+  geom_boxplot() +
+  geom_point(
+    data = ensemble_longer,
+    aes(x = value, y = "Ensemble"),
+    inherit.aes = FALSE,
+    shape = 8,
+    size = 4
+  ) +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Using Log-Scale Equipment Gap") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+data_options_longer |>
+  mutate(group = as.character(log_scale_skill_gap)) |>
+  ggplot(aes(x = value, y = group, fill = group)) +
+  geom_boxplot() +
+  geom_point(
+    data = ensemble_longer,
+    aes(x = value, y = "Ensemble"),
+    inherit.aes = FALSE,
+    shape = 8,
+    size = 4
+  ) +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Using Log-Scale Skill Points Gap") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+data_options_longer |>
+  mutate(group = as.character(include_pistol)) |>
+  ggplot(aes(x = value, y = group, fill = group)) +
+  geom_boxplot() +
+  geom_point(
+    data = ensemble_longer,
+    aes(x = value, y = "Ensemble"),
+    inherit.aes = FALSE,
+    shape = 8,
+    size = 4
+  ) +
+  facet_wrap(~metric, scales = "free", ncol = 2) +
+  coord_flip() +
+  labs(title = "Metrics for Including Pistol Rounds in Data") +
+  theme_minimal() +
+  theme(legend.position = "none")
 ```
