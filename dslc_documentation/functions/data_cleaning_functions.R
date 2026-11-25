@@ -371,6 +371,10 @@ clean_data <- function(
     pull(file_name) |>
     unique()
   
+  # Remove 1win-vs-b8-m1-dust2.dem, bad data file
+  rounds <- rounds |> filter(file_name != "1win-vs-b8-m1-dust2.dem")
+  kills <- kills |> filter(file_name != "1win-vs-b8-m1-dust2.dem")
+  
   rounds <- rounds |>
     filter(!str_starts(file_name, "incomplete.dem"))
   
