@@ -601,3 +601,168 @@ data_options_longer |>
   theme_minimal() +
   theme(legend.position = "none")
 ```
+
+
+# Using the final chosen model
+
+```{r true-data}
+data <- clean_data(sample_rounds,
+                   sample_kills,
+                   historical_team_points,
+                   log_scale_equip_gap = TRUE,
+                   log_scale_skill_gap = TRUE,
+                   include_pistol = TRUE,
+                   split = TRUE,
+                   seed = 0318
+                   )
+
+train_data <- data$train_data
+validate_data <- data$validate_data
+test_data <- data$test_data
+
+lr <- glm(team_1_win ~ map_and_team_1_side + team_1_equip_gap + team_1_points_gap, data = train_data, family = "binomial")
+```
+
+```{r}
+validate_predictions <- predict(
+  lr,
+  newdata = validate_data,
+  type = "response"
+)
+
+thresholds <- sort(unique(c(0, validate_predictions, 1)))
+
+threshold_results <- purrr::map_dfr(thresholds, \(cutoff) {
+  pred <- as.integer(validate_predictions >= cutoff)
+  actual <- validate_data$team_1_win
+
+  sensitivity <- sum(pred == 1 & actual == 1) / sum(actual == 1)
+  specificity <- sum(pred == 0 & actual == 0) / sum(actual == 0)
+
+  tibble(
+    cutoff = cutoff,
+    sensitivity = sensitivity,
+    specificity = specificity,
+    balanced_accuracy = (sensitivity + specificity) / 2
+  )
+})
+
+best_cutoff <- threshold_results |>
+  slice_max(balanced_accuracy, n = 1, with_ties = FALSE)
+
+best_cutoff
+
+threshold_results |>
+  pivot_longer(
+    cols = c(sensitivity, specificity, balanced_accuracy),
+    names_to = "metric",
+    values_to = "value"
+  ) |>
+  ggplot(aes(cutoff, value, color = metric)) +
+  geom_line() +
+  geom_vline(
+    xintercept = best_cutoff$cutoff,
+    linetype = "dashed"
+  )
+```
+0.525 is the cutoff
+
+```{r}
+validate_results <- validate_data |>
+  mutate(
+    pred = predict(lr, newdata = validate_data, type = "response")
+  )
+
+target_probability <- 0.40
+
+similar_rounds <- validate_results |>
+  arrange(abs(pred - target_probability)) |>
+  slice_head(n = 100)
+
+set.seed(0318)
+
+B <- 2000
+
+bootstrap_results <- purrr::map_dbl(seq_len(B), \(i) {
+  similar_rounds |>
+    slice_sample(n = nrow(similar_rounds), replace = TRUE) |>
+    summarise(win_rate = mean(team_1_win)) |>
+    pull(win_rate)
+})
+
+quantile(bootstrap_results, c(0.025, 0.5, 0.975))
+```
+
+```{r}
+target_probabilities <- seq(0.1, 0.9, by = 0.001)
+
+calibration_results <- purrr::map_dfr(
+    target_probabilities,
+    \(target) {
+        
+        similar_rounds <- validate_results |>
+            arrange(abs(pred - target)) |>
+            slice_head(n = 100)
+        
+        tibble(
+            target = target,
+            observed = mean(similar_rounds$team_1_win)
+        )
+    }
+)
+
+calibration_results |>
+  ggplot(aes(x = target, y = observed)) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed"
+  ) +
+  geom_line() +
+  geom_point(size = 1) +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(
+    x = "Predicted win probability",
+    y = "Observed win rate",
+    title = "Logistic regression calibration",
+    subtitle = "100 nearest validation rounds per probability"
+  )
+```
+
+```{r}
+set.seed(0318)
+
+target_probabilities <- seq(0.05, 0.95, by = 0.05)
+
+bootstrap_lookup <- purrr::map_dfr(
+  target_probabilities,
+  \(target) {
+
+    similar_rounds <- validate_results |>
+      arrange(abs(pred - target)) |>
+      slice_head(n = 100)
+
+    bootstrap_results <- purrr::map_dbl(
+      seq_len(2000),
+      \(i) {
+        similar_rounds |>
+          slice_sample(n = nrow(similar_rounds), replace = TRUE) |>
+          summarise(win_rate = mean(team_1_win)) |>
+          pull(win_rate)
+      }
+    )
+
+    tibble(
+      target = target,
+      n = nrow(similar_rounds),
+      observed = mean(similar_rounds$team_1_win),
+      lower = quantile(bootstrap_results, 0.025),
+      median = quantile(bootstrap_results, 0.50),
+      upper = quantile(bootstrap_results, 0.975)
+    )
+  }
+)
+```
+
+Maximum spending for CT: 44,000.
+Maximum spending for T: 41,500.
